@@ -12,6 +12,12 @@ REGOLE FONDAMENTALI:
 2. Usa SOLO le informazioni presenti nella BASE DI CONOSCENZA fornita o, per le domande sulla zona, quelle trovate con la ricerca web. NON inventare mai dati (orari, password WiFi, indirizzi, prezzi della casa, ecc.). Se un'informazione sulla casa è segnata «DA COMPLETARE» o non è presente, consideralo come "non lo so".
 3. Scrivi SEMPRE una bozza di risposta pronta da inviare (nella lingua del cliente), anche quando vai in escalation: così all'host basta confermarla o modificarla. Se non sai qualcosa, la bozza dev'essere onesta e non deve inventare.
 
+IMMAGINI:
+- Il cliente può allegare una foto. Guardala e tieni conto di quello che mostra: di solito è un guasto o un problema in casa (elettrodomestico, perdita d'acqua, danno), oppure un dettaglio della casa o della zona su cui sta chiedendo.
+- ⚠️ ECCEZIONE ASSOLUTA — DOCUMENTI D'IDENTITÀ: se la foto è (anche solo in parte) una carta d'identità, un passaporto, una patente, una tessera sanitaria o un altro documento personale, FERMATI SUBITO. Metti categoria "documento_identita", action "escala", e NON trascrivere, NON descrivere e NON riassumere NIENTE di quello che c'è nel documento: né nome, né numeri, né date, né indirizzi, né volto. Nel campo "reason" scrivi solo che è un documento. Nel campo "draft" scrivi un messaggio neutro al cliente che conferma di aver ricevuto il documento, senza citarne alcun dato.
+- Le foto dei documenti servono all'host per la registrazione su alloggiatiweb: se ne occupa lui a mano, tu non devi estrarne i dati.
+- Non identificare né descrivere le persone ritratte nelle foto.
+
 RICERCA WEB:
 - Per le domande di tipo "info_zona" (spiagge, ristoranti, supermercati, farmacie, come arrivare, cosa fare in zona), se l'informazione non è già nella base di conoscenza, USA lo strumento web_search per trovarla, poi scrivi la bozza basandoti sui risultati.
 - NON usare web_search per le regole della casa né per i temi sensibili.
@@ -25,6 +31,7 @@ COME CLASSIFICARE E DECIDERE (campo "action"):
 - "info_zona": spiagge, ristoranti, supermercati, farmacie, come arrivare, cosa fare in zona. → se la risposta è già in una FAQ IMPARATA ancora valida, usala e metti action "invia"; altrimenti cerca sul web e metti SEMPRE action "escala" (serve la conferma dell'host), proponendo comunque una bozza completa.
 - "sensibile": prenotazioni, pagamenti, prezzi, disponibilità, date, modifiche o cancellazioni, lamentele o problemi/guasti, documenti d'identità. → SEMPRE action "escala". Non confermare mai prezzi, date o disponibilità.
 - "saluto_altro": saluti e convenevoli → puoi rispondere ("invia") in modo cordiale.
+- "documento_identita": la foto contiene un documento personale → SEMPRE action "escala", senza estrarne alcun dato (vedi la sezione IMMAGINI).
 - Se l'informazione richiesta NON è disponibile, oppure sei in dubbio → action "escala".
 
 Quando hai la risposta, concludi SEMPRE chiamando lo strumento submit_response con la tua decisione. Non terminare mai con solo testo libero.`;
@@ -53,7 +60,7 @@ const RESPONSE_TOOL = {
     properties: {
       category: {
         type: 'string',
-        enum: ['regole_casa', 'info_zona', 'sensibile', 'saluto_altro'],
+        enum: ['regole_casa', 'info_zona', 'sensibile', 'saluto_altro', 'documento_identita'],
         description: 'La categoria della domanda del cliente.',
       },
       action: {
@@ -111,18 +118,45 @@ function systemBlocks(knowledgeText) {
   ];
 }
 
+// Formati immagine accettati dall'API Claude.
+const SUPPORTED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
+
+export function isSupportedImageType(mimetype) {
+  return SUPPORTED_IMAGE_TYPES.has(String(mimetype || '').split(';')[0].trim().toLowerCase());
+}
+
+/**
+ * Costruisce il contenuto del turno del cliente. Con una foto allegata il
+ * turno diventa multimodale: l'immagine PRIMA del testo, come raccomandato
+ * (Claude lavora meglio con l'immagine in testa).
+ */
+function buildUserContent(text, image) {
+  if (!image) return text;
+  return [
+    { type: 'image', source: { type: 'base64', media_type: image.mediaType, data: image.data } },
+    { type: 'text', text: text || '(il cliente ha inviato una foto senza testo)' },
+  ];
+}
+
 /**
  * Dato il messaggio di un cliente (ed eventuale storico), restituisce la
  * decisione del bot: categoria, action (invia/escala), bozza, motivo e le
  * eventuali fonti web usate.
  *
+ * `image` è opzionale: { data: <base64>, mediaType: 'image/jpeg' }. Se c'è, il
+ * modello guarda la foto insieme al testo. Le foto di documenti d'identità
+ * vengono classificate "documento_identita" senza estrarne alcun dato.
+ *
  * Il modello può usare web_search (per le domande sulla zona) e poi conclude
  * chiamando submit_response. Il ciclo sotto gestisce i tool server-side e gli
  * eventuali "pause_turn".
  */
-export async function think(clientMessage, history = []) {
+export async function think(clientMessage, history = [], { image } = {}) {
   const knowledge = loadKnowledge();
-  const messages = normalizeMessages([...history, { role: 'user', content: clientMessage }]);
+  const messages = normalizeMessages([
+    ...history,
+    { role: 'user', content: buildUserContent(clientMessage, image) },
+  ]);
   const sourcesByUrl = new Map();
   let finalResponse;
 

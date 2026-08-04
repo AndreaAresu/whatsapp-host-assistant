@@ -8,6 +8,10 @@ export const config = {
   // Bot Telegram di controllo (per approvare le bozze).
   telegramToken: process.env.TELEGRAM_BOT_TOKEN,
   telegramChatId: process.env.TELEGRAM_CHAT_ID,
+  // Trascrizione dei vocali (Google Gemini). Claude non accetta audio in
+  // ingresso: senza questa chiave i vocali restano una semplice notifica.
+  geminiApiKey: process.env.GEMINI_API_KEY,
+  geminiModel: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
 };
 
 if (!config.anthropicApiKey) {

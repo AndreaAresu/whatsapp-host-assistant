@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "latest",
+    "@google/genai": "^2.15.0",
     "@whiskeysockets/baileys": "latest",
     "better-sqlite3": "latest",
     "dotenv": "latest",

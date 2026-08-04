@@ -30,12 +30,22 @@ Flusso di un messaggio (`src/index.js` è l'unico punto in cui i pezzi si
 incontrano; tutto il resto è disaccoppiato):
 
 ```
-WhatsApp (whatsapp.js) → allowlist → memory (SQLite) → engine → brain (Claude)
-                                                          ↓
+                       ┌─ testo ──────────────────────┐
+WhatsApp (whatsapp.js) ├─ foto ────→ (byte in allegato)├→ allowlist → memory → engine → brain (Claude)
+                       └─ vocale ──→ audio.js (Gemini) ┘                                    ↓
+                                       trascrizione → testo                                 ↓
                             invia al cliente  ←──  o  ──→  telegram.js (bozza all'host)
                                                                   ↓ approvazione
                                                         learned.js (FAQ) ──→ knowledge.js
 ```
+
+**Un solo cervello, due provider.** Claude decide sempre. Gemini (`audio.js`)
+non decide nulla: è un adattatore stretto audio→testo, necessario solo perché
+l'API di Claude **non ha un content block audio** (solo `text`, `image`,
+`document`). Le foto invece vanno direttamente a Claude nella stessa chiamata
+`think()`, così classificazione, escalation, base di conoscenza e FAQ imparate
+funzionano identiche su testo e immagini. Non spostare la decisione su Gemini:
+significherebbe duplicare le regole di casa su due provider.
 
 - **`engine.js`** è volutamente agnostico dal canale: riceve `sendToClient` e
   `requestApproval` come callback. È ciò che permette a `test-telegram.js` di
@@ -67,8 +77,20 @@ WhatsApp (whatsapp.js) → allowlist → memory (SQLite) → engine → brain (C
   (rate limit, overload), `index.js` avvisa l'host via Telegram invece di
   propagare, così può rispondere a mano. Le eccezioni di `notifyHost` e degli
   alert sono a loro volta inghiottite (`safeAlert`).
-- **Il bot ignora gruppi, status e media** e non manda mai messaggi a freddo:
-  risponde solo a chi scrive per primo.
+- **Il bot ignora gruppi e status** e non manda mai messaggi a freddo: risponde
+  solo a chi scrive per primo. Dei media gestisce solo foto e vocali; video,
+  sticker, documenti-file, contatti e posizioni restano una notifica all'host.
+- **I documenti d'identità non vengono mai letti**: il system prompt di
+  `brain.js` impone categoria `documento_identita` con divieto esplicito di
+  trascrivere, descrivere o riassumere qualsiasi dato del documento (nome,
+  numeri, date, volto). `index.js` si limita al promemoria alloggiatiweb. Questa
+  guardia è una scelta esplicita dell'utente su dati personali di terzi — non
+  rimuoverla né allentarla senza chiederglielo.
+- **I byte dei media non entrano mai in SQLite**: nello storico va un segnaposto
+  (`[il cliente ha inviato una foto]`). Salvare il base64 gonfierebbe il DB e lo
+  rispedirebbe a ogni turno successivo.
+- **`download()` di `onMedia` è pigro apposta**: va invocato solo dopo il
+  controllo allowlist, così i media degli sconosciuti non vengono mai scaricati.
 
 ### Dettagli non ovvi
 
@@ -90,6 +112,14 @@ WhatsApp (whatsapp.js) → allowlist → memory (SQLite) → engine → brain (C
   modello a non fidarsene.
 - **`knowledge/casa.md`** è la fonte canonica delle risposte. Le voci
   «DA COMPLETARE» sono intenzionali: il prompt le tratta come "non lo so".
+- **I vocali WhatsApp sono Opus in container Ogg**, mentre Gemini documenta
+  "OGG Vorbis". In pratica l'invio diretto funziona; `audio.js` prova prima così
+  e solo se l'API rifiuta transcodifica in WAV con `ffmpeg` (opzionale: se manca,
+  propaga l'errore e l'host riceve la notifica). Il `; codecs=opus` va tolto dal
+  MIME prima dell'invio.
+- **Ogni percorso media degrada, mai fallisce**: chiave assente, download fallito,
+  audio incomprensibile o formato non supportato finiscono tutti nella notifica
+  all'host — cioè il comportamento che il bot aveva prima di questa funzione.
 
 ### File di stato a runtime (tutti gitignorati)
 

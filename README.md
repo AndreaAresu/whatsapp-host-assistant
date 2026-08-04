@@ -70,6 +70,33 @@ risponde **solo** ai numeri in lista (`allowlist.json`).
   risposte manuali (così una risposta a un amico non finisce nelle FAQ).
 - Lista vuota = il bot non risponde automaticamente a nessuno, ti avvisa e basta.
 
+## Foto e messaggi vocali
+Il bot capisce anche i media, non solo il testo.
+
+**Foto** — le guarda Claude, nella stessa chiamata che già classifica e decide:
+una foto vale quanto un messaggio scritto (guasto in casa, elettrodomestico,
+dettaglio della casa). Nello storico resta solo un segnaposto: i byte
+dell'immagine non entrano mai nel database.
+
+> 🪪 **Documenti d'identità:** se la foto è una carta d'identità, un passaporto
+> o simili, il bot si ferma: **non ne legge né salva alcun dato** (niente nomi,
+> numeri, date). Ti manda solo un promemoria per la registrazione su
+> alloggiatiweb, che resta un lavoro tuo, a mano.
+
+**Vocali** — l'API di Claude non accetta audio, quindi la trascrizione la fa
+**Google Gemini** (`GEMINI_API_KEY` nel `.env`); il testo poi rientra nella
+pipeline normale e risponde Claude. Sulle bozze in arrivo su Telegram i vocali
+sono marcati 🎤 così sai che stai leggendo una trascrizione, che può sbagliare.
+Senza la chiave, i vocali ti arrivano come semplice notifica, come prima.
+
+Tutto il resto (video, sticker, documenti-file, contatti, posizioni) resta una
+notifica: rispondi a mano. I media dei numeri **non** in lista non vengono
+nemmeno scaricati.
+
+> Nota: i vocali WhatsApp sono Opus in container Ogg. Di norma Gemini li accetta
+> così com'è; se li rifiuta, il bot li transcodifica con `ffmpeg` (se installato)
+> e riprova. Su un VPS: `sudo apt install ffmpeg`.
+
 ## Apprendimento (FAQ che cresce)
 Il bot impara dalle risposte che approvi, così la stessa domanda non la rispondi
 due volte:
@@ -94,4 +121,5 @@ due volte:
 - [x] Canale Telegram per approvare/modificare le bozze
 - [x] Connessione WhatsApp (Baileys) + memoria conversazioni
 - [x] Apprendimento: salvataggio delle risposte approvate nelle FAQ
+- [x] Lettura delle foto (Claude) e trascrizione dei vocali (Gemini)
 - [ ] Deploy su un VPS per tenerlo attivo 24/7 — vedi [DEPLOY.md](DEPLOY.md)

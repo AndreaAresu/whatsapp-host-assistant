@@ -2,7 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { startWhatsApp } from './whatsapp.js';
 import { createControlBot } from './telegram.js';
 import { handleClientMessage } from './engine.js';
-import { evaluateForLearning } from './brain.js';
+import { evaluateForLearning, isSupportedImageType } from './brain.js';
+import { transcribeAudio, isTranscriptionEnabled } from './audio.js';
 import { addLearned } from './learned.js';
 import { isAllowedNumber, addNumber } from './allowlist.js';
 import * as memory from './memory.js';
@@ -61,21 +62,7 @@ const { bot, requestApproval, requestSaveConfirmation, requestUnknownApproval, n
   // alla lista e processa il messaggio originale come un cliente normale.
   onAddAndReply: async ({ jid, number, name, text }) => {
     addNumber(number);
-    const history = memory.getHistory(jid);
-    memory.appendUser(jid, text);
-    try {
-      await handleClientMessage({
-        conversationId: jid,
-        clientName: name,
-        text,
-        history,
-        sendToClient,
-        requestApproval,
-      });
-    } catch (err) {
-      // Errore tecnico (es. API Claude): avvisa l'host così risponde a mano.
-      await notifyClientFailure({ name, number, text }, err);
-    }
+    await processClientMessage({ jid, number, name, text });
   },
   });
 await bot.init();
@@ -93,6 +80,123 @@ async function notifyClientFailure({ name, number, text }, err) {
   );
 }
 
+/**
+ * Percorso unico per ogni messaggio di un cliente già autorizzato, qualunque
+ * sia la sua origine: testo, foto, vocale trascritto o messaggio recuperato
+ * dopo un "Aggiungi e rispondi".
+ *
+ * `memoryText` è ciò che finisce nello storico al posto del testo: per le foto
+ * salviamo un segnaposto, perché i byte dell'immagine non devono entrare nel
+ * database (peserebbero e verrebbero rispediti a ogni turno).
+ */
+async function processClientMessage({ jid, number, name, text, image, memoryText }) {
+  const history = memory.getHistory(jid); // contesto precedente
+  memory.appendUser(jid, memoryText ?? text); // registra il messaggio del cliente
+  try {
+    return await handleClientMessage({
+      conversationId: jid,
+      clientName: name,
+      text,
+      history,
+      image,
+      sendToClient,
+      requestApproval,
+    });
+  } catch (err) {
+    // La risposta non è partita per un errore tecnico (es. API Claude in
+    // rate limit/overload). NON rilanciamo: avvisiamo l'host qui, dove
+    // abbiamo il contesto cliente, così può rispondere a mano.
+    await notifyClientFailure({ name, number, text }, err);
+    return null;
+  }
+}
+
+/**
+ * Foto di un cliente: la facciamo guardare a Claude nella stessa chiamata che
+ * già classifica e decide, così una foto vale quanto un messaggio di testo.
+ *
+ * Nello storico salviamo solo un segnaposto: i byte dell'immagine non entrano
+ * mai nel database. Se la foto è un documento d'identità, brain.js la
+ * classifica "documento_identita" senza estrarne alcun dato, e qui ci
+ * limitiamo a ricordare all'host la registrazione su alloggiatiweb.
+ */
+async function handlePhoto({ jid, number, name, mimetype, download }) {
+  let buffer;
+  try {
+    buffer = await download();
+  } catch (err) {
+    console.error(`Errore nello scaricamento della foto di ${name} (${number}):`, err);
+    await notifyHost(
+      `📎 ${name} (${number}) ti ha mandato una foto, ma non sono riuscito a scaricarla. ` +
+        'Guardala e rispondi a mano su WhatsApp.'
+    );
+    return;
+  }
+
+  const result = await processClientMessage({
+    jid,
+    number,
+    name,
+    text: 'Il cliente ha inviato questa foto.',
+    image: { data: buffer.toString('base64'), mediaType: mimetype.split(';')[0].trim() },
+    memoryText: '[il cliente ha inviato una foto]',
+  });
+
+  if (result?.decision?.category === 'documento_identita') {
+    await notifyHost(
+      `🪪 La foto di ${name} (${number}) sembra un documento d'identità: non ne ho letto ` +
+        'né salvato il contenuto. Ricordati della registrazione su alloggiatiweb.'
+    );
+  }
+}
+
+/**
+ * Vocale di un cliente: lo facciamo trascrivere da Gemini (Claude non accetta
+ * audio in ingresso) e poi trattiamo la trascrizione come un normale messaggio
+ * di testo. Se la trascrizione non è configurata o fallisce, degradiamo al
+ * comportamento di prima: avvisiamo l'host, che risponde a mano.
+ */
+async function handleVoiceNote({ jid, number, name, kind, mimetype, download }) {
+  const avvisaHost = (motivo) =>
+    notifyHost(
+      `🎤 ${name} (${number}) ti ha mandato un ${kind}, ma non sono riuscito a trascriverlo ` +
+        `(${motivo}). Ascoltalo e rispondi a mano su WhatsApp.`
+    );
+
+  if (!isTranscriptionEnabled()) {
+    await notifyHost(
+      `🎤 ${name} (${number}) ti ha mandato un ${kind}. La trascrizione non è configurata ` +
+        '(manca GEMINI_API_KEY nel .env): ascoltalo e rispondi a mano su WhatsApp.'
+    );
+    return;
+  }
+
+  let transcript;
+  try {
+    transcript = await transcribeAudio(await download(), mimetype);
+  } catch (err) {
+    console.error(`Errore nella trascrizione del vocale di ${name} (${number}):`, err);
+    await avvisaHost('errore tecnico');
+    return;
+  }
+
+  if (!transcript) {
+    await avvisaHost('audio incomprensibile o silenzioso');
+    return;
+  }
+
+  console.log(`🎤 Vocale di ${name} trascritto (${transcript.length} caratteri).`);
+  await processClientMessage({
+    jid,
+    number,
+    // Il marcatore è solo per l'host su Telegram: clientName non arriva mai a
+    // Claude, quindi non inquina il prompt. Serve perché l'host sappia che sta
+    // leggendo una trascrizione, che può contenere errori.
+    name: `${name} 🎤 (vocale trascritto)`,
+    text: transcript,
+  });
+}
+
 // --- Connessione WhatsApp ---
 wa = await startWhatsApp({
   onMessage: async ({ jid, number, name, text }) => {
@@ -101,23 +205,7 @@ wa = await startWhatsApp({
       await requestUnknownApproval({ jid, number, name, text });
       return;
     }
-    const history = memory.getHistory(jid); // contesto precedente
-    memory.appendUser(jid, text); // registra il messaggio del cliente
-    try {
-      await handleClientMessage({
-        conversationId: jid,
-        clientName: name,
-        text,
-        history,
-        sendToClient,
-        requestApproval,
-      });
-    } catch (err) {
-      // La risposta non è partita per un errore tecnico (es. API Claude in
-      // rate limit/overload). NON rilanciamo: avvisiamo l'host qui, dove
-      // abbiamo il contesto cliente, così può rispondere a mano.
-      await notifyClientFailure({ name, number, text }, err);
-    }
+    await processClientMessage({ jid, number, name, text });
   },
 
   // L'host ha risposto a mano dal telefono: teniamo il contesto allineato e,
@@ -149,23 +237,36 @@ wa = await startWhatsApp({
     }
   },
 
-  // Media in arrivo (foto/audio/documento/...): il bot non li gestisce, ma
-  // avvisa l'host perché risponda a mano. Nessuna chiamata a Claude.
-  onMedia: async ({ number, name, kind }) => {
-    const puoEssereDocumento = kind === 'foto' || kind === 'documento';
+  // Media in arrivo. Il bot gestisce da solo due casi — le foto (le guarda
+  // con Claude) e i vocali (li fa trascrivere e li tratta come testo) — e per
+  // tutto il resto si limita ad avvisare l'host, come prima.
+  onMedia: async ({ jid, number, name, kind, mimetype, download }) => {
     if (!isAllowedNumber(number)) {
-      // Numero NON in lista: avviso e basta, senza aggiungerlo automaticamente.
+      // Numero NON in lista: avviso e basta. Il media non viene nemmeno
+      // scaricato (download() non viene invocato): niente banda, nessun dato
+      // di sconosciuti che entra nel sistema, nessuna chiamata alle API.
       await notifyHost(
         `📎 Media da un numero NON in lista (${name} · ${number}): ${kind}.\n` +
-          'Il bot non gestisce i media: se vuoi rispondere, fallo a mano su WhatsApp.'
+          'Il bot non gestisce i media dei numeri non autorizzati: se vuoi rispondere, fallo a mano su WhatsApp.'
       );
       return;
     }
+
+    if (kind === 'foto' && isSupportedImageType(mimetype)) {
+      await handlePhoto({ jid, number, name, mimetype, download });
+      return;
+    }
+    if (kind === 'nota vocale' || kind === 'audio') {
+      await handleVoiceNote({ jid, number, name, kind, mimetype, download });
+      return;
+    }
+
+    // Video, sticker, documenti-file, contatti, posizioni: fuori portata.
     let text =
-      `📎 ${name} (${number}) ti ha mandato un media: ${kind}. ` +
-      'Il bot non gestisce i media: rispondi a mano su WhatsApp.';
-    if (puoEssereDocumento) {
-      text += '\nSe è la foto di un documento, ricordati della registrazione su alloggiatiweb.';
+      `📎 ${name} (${number}) ti ha mandato un media che il bot non gestisce: ${kind}. ` +
+      'Rispondi a mano su WhatsApp.';
+    if (kind === 'documento') {
+      text += '\nSe è un documento d\'identità, ricordati della registrazione su alloggiatiweb.';
     }
     await notifyHost(text);
   },

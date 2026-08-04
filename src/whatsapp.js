@@ -5,9 +5,14 @@ import { jidToNumber } from './allowlist.js';
 
 // Interop robusto: a seconda della build, makeWASocket è il default export.
 const makeWASocket = baileys.default ?? baileys.makeWASocket;
-const { useMultiFileAuthState, DisconnectReason } = baileys;
+const { useMultiFileAuthState, DisconnectReason, downloadMediaMessage } = baileys;
 
 const logger = P({ level: 'silent' });
+
+// Tetto allo scaricamento dei media: evita che un file enorme (o malevolo)
+// occupi memoria e finisca in una chiamata API costosa. I media di un cliente
+// sono foto e vocali brevi, ben sotto questa soglia.
+const MAX_MEDIA_BYTES = 20 * 1024 * 1024; // 20 MB
 
 /**
  * Avvia la connessione a WhatsApp via Baileys (come dispositivo collegato).
@@ -17,9 +22,11 @@ const logger = P({ level: 'silent' });
  *   telefono (serve per imparare). Esclude gli invii fatti dal bot stesso.
  * - onAlert(text): notifica di sistema per l'host (logout/disconnessione/ritorno
  *   online). Opzionale e disaccoppiato: qui non sappiamo nulla di Telegram.
- * - onMedia({ jid, number, name, kind }): media in arrivo da un cliente (foto,
- *   audio, ecc.) senza testo utile. Il bot non risponde da solo ai media: serve
- *   solo per avvisare l'host che deve rispondere a mano. Opzionale.
+ * - onMedia({ jid, number, name, kind, mimetype, download }): media in arrivo da
+ *   un cliente (foto, vocale, ecc.) senza testo utile. `download()` è una
+ *   funzione PIGRA che restituisce una Promise<Buffer> col contenuto decifrato:
+ *   va invocata solo se il media serve davvero, così i media dei numeri non in
+ *   lista non vengono mai scaricati. Opzionale.
  * Restituisce { sendToClient }.
  */
 export async function startWhatsApp({ onMessage, onHostReply, onAlert, onMedia }) {
@@ -106,15 +113,24 @@ export async function startWhatsApp({ onMessage, onHostReply, onAlert, onMedia }
 
         const text = extractText(msg.message);
         if (!text) {
-          // Nessun testo utile: il bot NON risponde ai media da solo, ma se è un
-          // media da un cliente avvisa l'host perché risponda a mano (es. le foto
-          // dei documenti d'identità per la registrazione su alloggiatiweb).
-          const kind = detectMediaKind(msg.message);
-          if (kind && !msg.key.fromMe) {
+          // Nessun testo utile: è un media. Lo segnaliamo a chi ci usa, che
+          // decide se scaricarlo (foto e vocali) o limitarsi ad avvisare l'host.
+          const media = describeMedia(msg.message);
+          if (media && !msg.key.fromMe) {
             const number = await resolvePhoneNumber(sock, msg.key);
             const name = msg.pushName || number || jid.split('@')[0];
             try {
-              await onMedia?.({ jid, number, name, kind });
+              await onMedia?.({
+                jid,
+                number,
+                name,
+                kind: media.kind,
+                mimetype: media.mimetype,
+                // Scaricamento PIGRO: chi chiama lo invoca solo se serve
+                // davvero. Così un media da un numero non in lista non viene
+                // mai scaricato (niente banda né dati non richiesti).
+                download: () => downloadMedia(msg),
+              });
             } catch (err) {
               console.error('Errore nella gestione del media:', err);
             }
@@ -224,18 +240,42 @@ function extractText(message) {
   ).trim();
 }
 
-// Classifica il tipo di media (stringa leggibile) o null se è solo testo.
-function detectMediaKind(message) {
+// Classifica il media: tipo leggibile + mimetype dichiarato da WhatsApp.
+// Restituisce null se il messaggio non contiene un media.
+function describeMedia(message) {
   const m = unwrapMessage(message);
   if (!m) return null;
-  if (m.imageMessage) return 'foto';
-  if (m.audioMessage) return m.audioMessage.ptt ? 'nota vocale' : 'audio';
-  if (m.videoMessage) return 'video';
-  if (m.documentMessage || m.documentWithCaptionMessage) return 'documento';
-  if (m.stickerMessage) return 'sticker';
-  if (m.contactMessage || m.contactsArrayMessage) return 'contatto';
-  if (m.locationMessage || m.liveLocationMessage) return 'posizione';
+  if (m.imageMessage) return { kind: 'foto', mimetype: m.imageMessage.mimetype };
+  if (m.audioMessage) {
+    return {
+      kind: m.audioMessage.ptt ? 'nota vocale' : 'audio',
+      mimetype: m.audioMessage.mimetype,
+    };
+  }
+  if (m.videoMessage) return { kind: 'video', mimetype: m.videoMessage.mimetype };
+  if (m.documentMessage || m.documentWithCaptionMessage) {
+    const doc = m.documentMessage || m.documentWithCaptionMessage?.message?.documentMessage;
+    return { kind: 'documento', mimetype: doc?.mimetype };
+  }
+  if (m.stickerMessage) return { kind: 'sticker', mimetype: m.stickerMessage.mimetype };
+  if (m.contactMessage || m.contactsArrayMessage) return { kind: 'contatto', mimetype: null };
+  if (m.locationMessage || m.liveLocationMessage) return { kind: 'posizione', mimetype: null };
   return null;
+}
+
+/**
+ * Scarica e decifra il contenuto di un media. Restituisce un Buffer.
+ * Lancia se il download fallisce o se il file supera MAX_MEDIA_BYTES.
+ */
+async function downloadMedia(msg) {
+  const buffer = await downloadMediaMessage(msg, 'buffer', {}, { logger });
+  if (!Buffer.isBuffer(buffer) || !buffer.length) {
+    throw new Error('Download del media vuoto o non valido.');
+  }
+  if (buffer.length > MAX_MEDIA_BYTES) {
+    throw new Error(`Media troppo grande (${Math.round(buffer.length / 1048576)} MB).`);
+  }
+  return buffer;
 }
 
 function delay(ms) {
