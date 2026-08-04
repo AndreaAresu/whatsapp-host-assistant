@@ -1,6 +1,6 @@
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { readJsonArray, writeJsonAtomic } from './storage.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PATH = join(__dirname, '..', 'allowlist.json');
@@ -16,17 +16,11 @@ export function jidToNumber(jid) {
 }
 
 export function loadAllowlist() {
-  if (!existsSync(PATH)) return [];
-  try {
-    const data = JSON.parse(readFileSync(PATH, 'utf8'));
-    return Array.isArray(data) ? data : [];
-  } catch {
-    return [];
-  }
+  return readJsonArray(PATH, 'La lista dei numeri autorizzati');
 }
 
 function save(list) {
-  writeFileSync(PATH, JSON.stringify(list, null, 2));
+  writeJsonAtomic(PATH, list);
 }
 
 export function isAllowed(jid) {

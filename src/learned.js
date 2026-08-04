@@ -1,7 +1,7 @@
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
+import { readJsonArray, writeJsonAtomic } from './storage.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const LEARNED_PATH = join(__dirname, '..', 'knowledge', 'learned.json');
@@ -11,12 +11,7 @@ const LEARNED_PATH = join(__dirname, '..', 'knowledge', 'learned.json');
 const EXPIRY_DAYS = { info_zona: 90 };
 
 export function loadLearned() {
-  if (!existsSync(LEARNED_PATH)) return [];
-  try {
-    return JSON.parse(readFileSync(LEARNED_PATH, 'utf8'));
-  } catch {
-    return [];
-  }
+  return readJsonArray(LEARNED_PATH, 'Le FAQ imparate');
 }
 
 export function isExpired(entry, now = new Date()) {
@@ -46,6 +41,6 @@ export function addLearned({ domanda, risposta, categoria, origine }) {
   };
 
   list.push(entry);
-  writeFileSync(LEARNED_PATH, JSON.stringify(list, null, 2));
+  writeJsonAtomic(LEARNED_PATH, list);
   return entry;
 }

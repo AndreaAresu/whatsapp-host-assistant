@@ -19,11 +19,24 @@ export function createControlBot({ onApprove, onSaveConfirmed, onAddAndReply }) 
   // Senza questo, chiunque trovi lo username potrebbe usare /lista (fuga dei
   // numeri dei clienti), /aggiungi, /rimuovi e i pulsanti. Scartiamo a monte
   // ogni update che non arriva dal chat id configurato.
-  const OWNER_ID = String(config.telegramChatId);
+  // Attenzione a NON fare String(undefined): darebbe la stringa "undefined",
+  // che non combacia con nessun chat id reale e bloccherebbe anche l'host.
+  const OWNER_ID = config.telegramChatId ? String(config.telegramChatId) : null;
+
+  // Al primo avvio TELEGRAM_CHAT_ID è ancora vuoto, e l'unico modo per
+  // scoprirlo è chiederlo al bot con /start. Finché non è configurato lasciamo
+  // passare quel solo comando, altrimenti la configurazione iniziale sarebbe
+  // impossibile: il bot bloccherebbe anche la richiesta che serve a sbloccarlo.
+  const COMANDO_START = /^\/start(?:@\w+)?(?:\s|$)/;
+
   bot.use(async (ctx, next) => {
     const fromId = String(ctx.from?.id ?? '');
     const chatId = String(ctx.chat?.id ?? '');
-    if (fromId === OWNER_ID || chatId === OWNER_ID) return next();
+    if (OWNER_ID && (fromId === OWNER_ID || chatId === OWNER_ID)) return next();
+    // Bot non ancora configurato: solo /start, che rivela a chi scrive il suo
+    // stesso chat id e nient'altro. Nessun comando che tocchi i dati dei
+    // clienti (/lista, /aggiungi, /rimuovi) o le bozze passa di qui.
+    if (!OWNER_ID && COMANDO_START.test(ctx.message?.text?.trim() ?? '')) return next();
     // Estraneo: ignora in silenzio (niente conferme che il bot esiste/funziona).
   });
 

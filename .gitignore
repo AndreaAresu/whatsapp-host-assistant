@@ -6,3 +6,7 @@ allowlist.json
 data/
 *.session
 auth_info*/
+# scarti della scrittura atomica: contengono gli stessi dati dei file sopra
+# (numeri dei clienti, FAQ), quindi vanno esclusi con la stessa cura
+*.tmp
+*.corrotto-*

@@ -72,7 +72,18 @@ significherebbe duplicare le regole di casa su due provider.
   (`info_zona`, `regole_casa`) sono candidabili.
 - **Il bot Telegram è privato**: un middleware in `telegram.js` scarta in
   silenzio ogni update che non venga da `TELEGRAM_CHAT_ID` (i comandi `/lista`
-  esporrebbero i numeri dei clienti).
+  esporrebbero i numeri dei clienti). **Unica eccezione**: finché
+  `TELEGRAM_CHAT_ID` non è configurato passa il solo `/start`, che è l'unico
+  modo per scoprire quel valore — senza, la configurazione iniziale sarebbe
+  impossibile. Non allargare l'eccezione ad altri comandi. Nota: `OWNER_ID` è
+  `null`, mai `String(undefined)`, che darebbe la stringa `"undefined"` e
+  bloccherebbe anche l'host.
+- **Gli archivi JSON si scrivono solo via `storage.js`**: `writeJsonAtomic`
+  (tmp + fsync + rename) e `readJsonArray`. Mai `writeFileSync` diretto su
+  `learned.json` o `allowlist.json`: non è atomica e un riavvio a metà scrittura
+  li tronca. `readJsonArray` mette in quarantena i file illeggibili
+  (`.corrotto-<ts>`) invece di ignorarli — ignorandoli, la prima scrittura
+  successiva li sovrascriverebbe distruggendo dati recuperabili.
 - **Gli errori tecnici non devono restare silenziosi**: se la pipeline fallisce
   (rate limit, overload), `index.js` avvisa l'host via Telegram invece di
   propagare, così può rispondere a mano. Le eccezioni di `notifyHost` e degli
