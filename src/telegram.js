@@ -49,6 +49,55 @@ export function createControlBot({ onApprove, onSaveConfirmed, onAddAndReply }) 
       ? text
       : text.slice(0, TELEGRAM_MAX_CHARS - 20) + '\n… (troncato)';
 
+  // Rete di sicurezza globale. Senza, un errore non gestito dentro un handler
+  // finisce solo sullo stdout del server: l'host vede il messaggio su Telegram
+  // restare identico, coi pulsanti ancora attivi, e non sa se sia successo
+  // qualcosa. Qui almeno glielo diciamo, e sblocchiamo la rotella di attesa
+  // del pulsante che altrimenti girerebbe fino al timeout.
+  bot.catch(async ({ error, ctx }) => {
+    console.error('Errore non gestito nel bot Telegram:', error);
+
+    // Sblocca la rotella d'attesa, ma SOLO se l'errore veniva da un pulsante:
+    // su un update diverso answerCallbackQuery lancia subito, e un try/catch
+    // unico si mangerebbe anche l'avviso qui sotto lasciando l'host all'oscuro.
+    if (ctx?.callbackQuery) {
+      try {
+        await ctx.answerCallbackQuery('Errore');
+      } catch { /* già risposto, o scaduto */ }
+    }
+
+    try {
+      await ctx?.reply?.(
+        '⚠️ Errore imprevisto nel bot. Niente è stato inviato al cliente.\n' +
+          'Controlla i log del server: journalctl -u costa-rei-bot -n 50'
+      );
+    } catch {
+      // Anche Telegram è irraggiungibile: resta il log sopra, è quanto possiamo fare.
+    }
+  });
+
+  /**
+   * Esegue un'azione che può fallire davvero (invio su WhatsApp, scrittura su
+   * disco) e ne riferisce l'esito all'host. Restituisce true solo se è andata
+   * a buon fine, così chi chiama può rimuovere la voce pendente SOLO dopo il
+   * successo: in caso di errore i pulsanti restano validi e si può riprovare.
+   */
+  async function provaConFeedback(ctx, azione, descrizione) {
+    try {
+      await azione();
+      return true;
+    } catch (err) {
+      console.error(`${descrizione}: fallito.`, err);
+      try {
+        await ctx.reply(
+          `⚠️ ${descrizione}: non è riuscito.\n${err.message}\n\n` +
+            'Non ho perso niente: riprova col pulsante qui sopra, oppure fallo a mano su WhatsApp.'
+        );
+      } catch { /* se Telegram non risponde, resta il log */ }
+      return false;
+    }
+  }
+
   const pending = new Map(); // bozze: draftId -> item
   const pendingSaves = new Map(); // FAQ da confermare: saveId -> item
   const awaitingEdit = new Map(); // host in modifica: chatId -> draftId
@@ -99,16 +148,27 @@ export function createControlBot({ onApprove, onSaveConfirmed, onAddAndReply }) 
         await ctx.answerCallbackQuery('Non più disponibile.');
         return;
       }
-      pendingUnknown.delete(id);
-      unknownByJid.delete(item.jid);
-      if (action === 'addnum') {
-        await onAddAndReply(item); // aggiunge il numero e processa il messaggio
-        await ctx.editMessageText(troncaPerTelegram(`✅ Aggiunto ${item.number}. Il bot sta gestendo: "${item.text}"`));
-        await ctx.answerCallbackQuery('Aggiunto');
-      } else {
+      if (action === 'dropnum') {
+        pendingUnknown.delete(id);
+        unknownByJid.delete(item.jid);
         await ctx.editMessageText(`🚫 Ignorato il numero ${item.number}.`);
         await ctx.answerCallbackQuery('Ignorato');
+        return;
       }
+      // Rispondiamo SUBITO al pulsante: onAddAndReply fa una chiamata a Claude
+      // e può superare i secondi entro cui Telegram si aspetta una risposta.
+      await ctx.answerCallbackQuery('Aggiungo...');
+      const aggiunto = await provaConFeedback(
+        ctx,
+        () => onAddAndReply(item), // aggiunge il numero e processa il messaggio
+        `L'aggiunta di ${item.number} alla lista`
+      );
+      if (!aggiunto) return; // resta pendente: l'host può riprovare
+      pendingUnknown.delete(id);
+      unknownByJid.delete(item.jid);
+      await ctx.editMessageText(
+        troncaPerTelegram(`✅ Aggiunto ${item.number}. Il bot sta gestendo: "${item.text}"`)
+      );
       return;
     }
 
@@ -119,15 +179,28 @@ export function createControlBot({ onApprove, onSaveConfirmed, onAddAndReply }) 
         await ctx.answerCallbackQuery('Non più disponibile.');
         return;
       }
-      pendingSaves.delete(id);
-      if (action === 'keep') {
-        await onSaveConfirmed(item);
-        await ctx.editMessageText(troncaPerTelegram(`💾 Salvata nelle FAQ:\nD: ${item.domanda}\nR: ${item.risposta}`));
-        await ctx.answerCallbackQuery('Salvata');
-      } else {
+      if (action === 'drop') {
+        pendingSaves.delete(id);
         await ctx.editMessageText('🗑 Non salvata.');
         await ctx.answerCallbackQuery('Ignorata');
+        return;
       }
+      // La rimozione va DOPO il salvataggio riuscito: prima, un errore di
+      // scrittura su disco faceva sparire la FAQ senza averla mai salvata.
+      const salvata = await provaConFeedback(
+        ctx,
+        () => onSaveConfirmed(item),
+        'Il salvataggio della FAQ'
+      );
+      if (!salvata) {
+        await ctx.answerCallbackQuery('Errore');
+        return; // resta pendente: l'host può riprovare
+      }
+      pendingSaves.delete(id);
+      await ctx.editMessageText(
+        troncaPerTelegram(`💾 Salvata nelle FAQ:\nD: ${item.domanda}\nR: ${item.risposta}`)
+      );
+      await ctx.answerCallbackQuery('Salvata');
       return;
     }
 
@@ -140,7 +213,15 @@ export function createControlBot({ onApprove, onSaveConfirmed, onAddAndReply }) 
 
     if (action === 'send') {
       await ctx.answerCallbackQuery('Invio...');
-      await onApprove(item, item.decision.draft);
+      const inviata = await provaConFeedback(
+        ctx,
+        () => onApprove(item, item.decision.draft),
+        `L'invio della risposta a ${item.clientName}`
+      );
+      // Se l'invio fallisce (es. WhatsApp disconnesso) la bozza resta in
+      // `pending`: i pulsanti sopra continuano a funzionare e l'host può
+      // ritentare senza doversi riscrivere la risposta.
+      if (!inviata) return;
       pending.delete(id);
       await ctx.editMessageText(troncaPerTelegram(`✅ Inviata a ${item.clientName}:\n\n${item.decision.draft}`));
     } else if (action === 'edit') {
@@ -166,7 +247,17 @@ export function createControlBot({ onApprove, onSaveConfirmed, onAddAndReply }) 
       return;
     }
     const finalText = ctx.message.text;
-    await onApprove(item, finalText);
+    const inviata = await provaConFeedback(
+      ctx,
+      () => onApprove(item, finalText),
+      `L'invio della risposta a ${item.clientName}`
+    );
+    if (!inviata) {
+      // Rimettiamo l'host in stato di modifica: la bozza è ancora pendente e
+      // il testo che aveva appena scritto non deve andare perso in silenzio.
+      awaitingEdit.set(ctx.chat.id, draftId);
+      return;
+    }
     pending.delete(draftId);
     await ctx.reply(troncaPerTelegram(`✅ Inviata a ${item.clientName}:\n\n${finalText}`));
   });

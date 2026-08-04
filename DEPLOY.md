@@ -26,10 +26,16 @@ rsync -av --exclude node_modules --exclude .git --exclude auth_info \
 ## 4. Configura sul server
 ```bash
 cd ~/chat-bot-costa-rei
-npm install
+npm ci                      # installa ESATTAMENTE le versioni di package-lock.json
+sudo apt install -y ffmpeg  # opzionale: rete di sicurezza per i vocali (vedi README)
 cp .env.example .env
-nano .env    # inserisci ANTHROPIC_API_KEY, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
+nano .env    # inserisci ANTHROPIC_API_KEY, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, GEMINI_API_KEY
 ```
+
+> ⚠️ Usa `npm ci`, **non** `npm install`. `npm ci` installa esattamente le
+> versioni bloccate in `package-lock.json`, cioè quelle provate; `npm install`
+> può risolvere versioni più recenti e mettere in produzione codice mai testato.
+> Serve che `package-lock.json` sia arrivato con l'rsync (lo è: non è escluso).
 
 ## 5. Primo avvio: scansiona il QR (una volta sola)
 ```bash
@@ -60,5 +66,10 @@ Salva periodicamente (es. cron giornaliero che fa un tar e lo copia altrove):
 ## 8. Aggiornare il bot
 ```bash
 # dal tuo computer: ripeti l'rsync del punto 3, poi sul server:
-cd ~/chat-bot-costa-rei && npm install && sudo systemctl restart costa-rei-bot
+cd ~/chat-bot-costa-rei && npm ci && sudo systemctl restart costa-rei-bot
 ```
+
+Per aggiornare davvero una libreria, fallo **sul tuo computer** (`npm update` o
+`npm install <pacchetto>@<versione>`), provalo in locale con `npm run brain`,
+committa il `package-lock.json` aggiornato e solo allora fai l'rsync. Così sul
+server non finisce mai una versione che non hai visto funzionare.

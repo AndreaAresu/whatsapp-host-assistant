@@ -8,14 +8,17 @@
     "brain": "node src/test-cli.js",
     "telegram": "node src/test-telegram.js"
   },
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
-    "@anthropic-ai/sdk": "latest",
+    "@anthropic-ai/sdk": "^0.100.1",
     "@google/genai": "^2.15.0",
-    "@whiskeysockets/baileys": "latest",
-    "better-sqlite3": "latest",
-    "dotenv": "latest",
-    "grammy": "latest",
-    "pino": "latest",
-    "qrcode-terminal": "latest"
+    "@whiskeysockets/baileys": "7.0.0-rc13",
+    "better-sqlite3": "^12.10.0",
+    "dotenv": "^17.4.2",
+    "grammy": "^1.43.0",
+    "pino": "^10.3.1",
+    "qrcode-terminal": "^0.12.0"
   }
 }
