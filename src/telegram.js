@@ -27,6 +27,15 @@ export function createControlBot({ onApprove, onSaveConfirmed, onAddAndReply }) 
     // Estraneo: ignora in silenzio (niente conferme che il bot esiste/funziona).
   });
 
+  // Telegram rifiuta i messaggi oltre i 4096 caratteri. Una bozza lunga (o la
+  // trascrizione di un vocale lungo) supererebbe il limite e l'invio
+  // fallirebbe: meglio troncare e consegnare comunque qualcosa all'host.
+  const TELEGRAM_MAX_CHARS = 4096;
+  const troncaPerTelegram = (text) =>
+    text.length <= TELEGRAM_MAX_CHARS
+      ? text
+      : text.slice(0, TELEGRAM_MAX_CHARS - 20) + '\n… (troncato)';
+
   const pending = new Map(); // bozze: draftId -> item
   const pendingSaves = new Map(); // FAQ da confermare: saveId -> item
   const awaitingEdit = new Map(); // host in modifica: chatId -> draftId
@@ -81,7 +90,7 @@ export function createControlBot({ onApprove, onSaveConfirmed, onAddAndReply }) 
       unknownByJid.delete(item.jid);
       if (action === 'addnum') {
         await onAddAndReply(item); // aggiunge il numero e processa il messaggio
-        await ctx.editMessageText(`✅ Aggiunto ${item.number}. Il bot sta gestendo: "${item.text}"`);
+        await ctx.editMessageText(troncaPerTelegram(`✅ Aggiunto ${item.number}. Il bot sta gestendo: "${item.text}"`));
         await ctx.answerCallbackQuery('Aggiunto');
       } else {
         await ctx.editMessageText(`🚫 Ignorato il numero ${item.number}.`);
@@ -100,7 +109,7 @@ export function createControlBot({ onApprove, onSaveConfirmed, onAddAndReply }) 
       pendingSaves.delete(id);
       if (action === 'keep') {
         await onSaveConfirmed(item);
-        await ctx.editMessageText(`💾 Salvata nelle FAQ:\nD: ${item.domanda}\nR: ${item.risposta}`);
+        await ctx.editMessageText(troncaPerTelegram(`💾 Salvata nelle FAQ:\nD: ${item.domanda}\nR: ${item.risposta}`));
         await ctx.answerCallbackQuery('Salvata');
       } else {
         await ctx.editMessageText('🗑 Non salvata.');
@@ -120,7 +129,7 @@ export function createControlBot({ onApprove, onSaveConfirmed, onAddAndReply }) 
       await ctx.answerCallbackQuery('Invio...');
       await onApprove(item, item.decision.draft);
       pending.delete(id);
-      await ctx.editMessageText(`✅ Inviata a ${item.clientName}:\n\n${item.decision.draft}`);
+      await ctx.editMessageText(troncaPerTelegram(`✅ Inviata a ${item.clientName}:\n\n${item.decision.draft}`));
     } else if (action === 'edit') {
       awaitingEdit.set(ctx.chat.id, id);
       await ctx.answerCallbackQuery();
@@ -146,7 +155,7 @@ export function createControlBot({ onApprove, onSaveConfirmed, onAddAndReply }) 
     const finalText = ctx.message.text;
     await onApprove(item, finalText);
     pending.delete(draftId);
-    await ctx.reply(`✅ Inviata a ${item.clientName}:\n\n${finalText}`);
+    await ctx.reply(troncaPerTelegram(`✅ Inviata a ${item.clientName}:\n\n${finalText}`));
   });
 
   /** Invia una bozza all'host con i pulsanti di approvazione. */
@@ -169,7 +178,7 @@ export function createControlBot({ onApprove, onSaveConfirmed, onAddAndReply }) 
       `Categoria: ${decision.category} · ${decision.reason}\n\n` +
       `Bozza:\n${decision.draft}${sourcesText}`;
 
-    await bot.api.sendMessage(config.telegramChatId, text, { reply_markup: keyboard });
+    await bot.api.sendMessage(config.telegramChatId, troncaPerTelegram(text), { reply_markup: keyboard });
   }
 
   /** Chiede all'host se salvare una risposta (manuale) come FAQ imparata. */
@@ -181,7 +190,7 @@ export function createControlBot({ onApprove, onSaveConfirmed, onAddAndReply }) 
     const text =
       '📝 Vuoi salvare questa come FAQ riutilizzabile?\n\n' +
       `D: ${item.domanda}\nR: ${item.risposta}\n\nCategoria: ${item.categoria}`;
-    await bot.api.sendMessage(config.telegramChatId, text, { reply_markup: keyboard });
+    await bot.api.sendMessage(config.telegramChatId, troncaPerTelegram(text), { reply_markup: keyboard });
   }
 
   /**
@@ -190,7 +199,7 @@ export function createControlBot({ onApprove, onSaveConfirmed, onAddAndReply }) 
    */
   async function notifyHost(text) {
     try {
-      await bot.api.sendMessage(config.telegramChatId, text);
+      await bot.api.sendMessage(config.telegramChatId, troncaPerTelegram(text));
     } catch (err) {
       console.error("Errore nell'invio della notifica all'host:", err);
     }
@@ -210,7 +219,7 @@ export function createControlBot({ onApprove, onSaveConfirmed, onAddAndReply }) 
       `📩 Messaggio da un numero NON in lista (${item.name} · ${item.number}):\n` +
       `"${item.text}"\n\n` +
       'Vuoi aggiungerlo alla lista e far rispondere il bot?';
-    await bot.api.sendMessage(config.telegramChatId, text, { reply_markup: keyboard });
+    await bot.api.sendMessage(config.telegramChatId, troncaPerTelegram(text), { reply_markup: keyboard });
   }
 
   return { bot, requestApproval, requestSaveConfirmation, requestUnknownApproval, notifyHost };

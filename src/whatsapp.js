@@ -263,11 +263,32 @@ function describeMedia(message) {
   return null;
 }
 
+// Dimensione dichiarata dal mittente nel protocollo, se presente.
+// È un valore che arriva dall'esterno, quindi non ci si può fidare: serve solo
+// a scartare in anticipo i file palesemente enormi, prima di scaricarli.
+function declaredFileLength(message) {
+  const m = unwrapMessage(message);
+  const media =
+    m?.imageMessage || m?.audioMessage || m?.videoMessage || m?.documentMessage ||
+    m?.documentWithCaptionMessage?.message?.documentMessage || m?.stickerMessage;
+  const len = Number(media?.fileLength ?? 0);
+  return Number.isFinite(len) ? len : 0;
+}
+
 /**
  * Scarica e decifra il contenuto di un media. Restituisce un Buffer.
  * Lancia se il download fallisce o se il file supera MAX_MEDIA_BYTES.
+ *
+ * Il controllo è DOPPIO e l'ordine conta: prima sulla dimensione dichiarata,
+ * per non bufferizzare in memoria un file enorme, e poi su quella reale, perché
+ * la dichiarata è controllata dal mittente e potrebbe mentire.
  */
 async function downloadMedia(msg) {
+  const declared = declaredFileLength(msg.message);
+  if (declared > MAX_MEDIA_BYTES) {
+    throw new Error(`Media troppo grande (${Math.round(declared / 1048576)} MB dichiarati).`);
+  }
+
   const buffer = await downloadMediaMessage(msg, 'buffer', {}, { logger });
   if (!Buffer.isBuffer(buffer) || !buffer.length) {
     throw new Error('Download del media vuoto o non valido.');
