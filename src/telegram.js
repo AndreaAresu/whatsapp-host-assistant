@@ -3,6 +3,40 @@ import { Bot, InlineKeyboard } from 'grammy';
 import { config } from './config.js';
 import { addNumber, removeNumber, listNumbers } from './allowlist.js';
 
+// Al primo avvio TELEGRAM_CHAT_ID è ancora vuoto, e l'unico modo per scoprirlo
+// è chiederlo al bot con /start. Finché non è configurato lasciamo passare quel
+// solo comando, altrimenti la configurazione iniziale sarebbe impossibile: il
+// bot bloccherebbe anche la richiesta che serve a sbloccarlo.
+const COMANDO_START = /^\/start(?:@\w+)?(?:\s|$)/;
+
+// Telegram rifiuta i messaggi oltre i 4096 caratteri. Una bozza lunga (o la
+// trascrizione di un vocale lungo) supererebbe il limite e l'invio
+// fallirebbe: meglio troncare e consegnare comunque qualcosa all'host.
+const TELEGRAM_MAX_CHARS = 4096;
+
+export const troncaPerTelegram = (text) =>
+  text.length <= TELEGRAM_MAX_CHARS
+    ? text
+    : text.slice(0, TELEGRAM_MAX_CHARS - 20) + '\n… (troncato)';
+
+/**
+ * Decide se un update Telegram può passare al resto del bot. È la guardia di
+ * privacy: il bot è privato e i comandi (/lista) esporrebbero i numeri dei
+ * clienti. Esportata perché è pura, e quindi verificabile dai test senza una
+ * connessione a Telegram.
+ *
+ * Attenzione a NON fare String(undefined): darebbe la stringa "undefined", che
+ * non combacia con nessun chat id reale e bloccherebbe anche l'host.
+ */
+export function updateAutorizzato({ ownerId, fromId, chatId, testo }) {
+  const owner = ownerId ? String(ownerId) : null;
+  if (owner) return String(fromId ?? '') === owner || String(chatId ?? '') === owner;
+  // Bot non ancora configurato: passa solo /start, che rivela a chi scrive il
+  // suo stesso chat id e nient'altro. Nessun comando che tocchi i dati dei
+  // clienti (/lista, /aggiungi, /rimuovi) o le bozze passa di qui.
+  return COMANDO_START.test(String(testo ?? '').trim());
+}
+
 /**
  * Crea il bot Telegram di controllo:
  * - invia le bozze all'host con i pulsanti Invia / Modifica / Ignora;
@@ -18,36 +52,18 @@ export function createControlBot({ onApprove, onSaveConfirmed, onAddAndReply }) 
   // --- Autorizzazione: il bot è privato, risponde SOLO all'host (TELEGRAM_CHAT_ID).
   // Senza questo, chiunque trovi lo username potrebbe usare /lista (fuga dei
   // numeri dei clienti), /aggiungi, /rimuovi e i pulsanti. Scartiamo a monte
-  // ogni update che non arriva dal chat id configurato.
-  // Attenzione a NON fare String(undefined): darebbe la stringa "undefined",
-  // che non combacia con nessun chat id reale e bloccherebbe anche l'host.
-  const OWNER_ID = config.telegramChatId ? String(config.telegramChatId) : null;
-
-  // Al primo avvio TELEGRAM_CHAT_ID è ancora vuoto, e l'unico modo per
-  // scoprirlo è chiederlo al bot con /start. Finché non è configurato lasciamo
-  // passare quel solo comando, altrimenti la configurazione iniziale sarebbe
-  // impossibile: il bot bloccherebbe anche la richiesta che serve a sbloccarlo.
-  const COMANDO_START = /^\/start(?:@\w+)?(?:\s|$)/;
-
+  // ogni update che non arriva dal chat id configurato: la regola vera sta in
+  // updateAutorizzato() qui sopra.
   bot.use(async (ctx, next) => {
-    const fromId = String(ctx.from?.id ?? '');
-    const chatId = String(ctx.chat?.id ?? '');
-    if (OWNER_ID && (fromId === OWNER_ID || chatId === OWNER_ID)) return next();
-    // Bot non ancora configurato: solo /start, che rivela a chi scrive il suo
-    // stesso chat id e nient'altro. Nessun comando che tocchi i dati dei
-    // clienti (/lista, /aggiungi, /rimuovi) o le bozze passa di qui.
-    if (!OWNER_ID && COMANDO_START.test(ctx.message?.text?.trim() ?? '')) return next();
+    const passa = updateAutorizzato({
+      ownerId: config.telegramChatId,
+      fromId: ctx.from?.id,
+      chatId: ctx.chat?.id,
+      testo: ctx.message?.text,
+    });
+    if (passa) return next();
     // Estraneo: ignora in silenzio (niente conferme che il bot esiste/funziona).
   });
-
-  // Telegram rifiuta i messaggi oltre i 4096 caratteri. Una bozza lunga (o la
-  // trascrizione di un vocale lungo) supererebbe il limite e l'invio
-  // fallirebbe: meglio troncare e consegnare comunque qualcosa all'host.
-  const TELEGRAM_MAX_CHARS = 4096;
-  const troncaPerTelegram = (text) =>
-    text.length <= TELEGRAM_MAX_CHARS
-      ? text
-      : text.slice(0, TELEGRAM_MAX_CHARS - 20) + '\n… (troncato)';
 
   // Rete di sicurezza globale. Senza, un errore non gestito dentro un handler
   // finisce solo sullo stdout del server: l'host vede il messaggio su Telegram

@@ -197,9 +197,13 @@ export async function startWhatsApp({ onMessage, onHostReply, onAlert, onMedia }
   return { sendToClient };
 }
 
+// Le funzioni qui sotto sono pure (nessuna connessione, nessuno stato) ed è per
+// questo che sono esportate: servono ai test in test/whatsapp.test.js. Fuori di
+// lì usa startWhatsApp.
+
 // In Baileys 7 una chat 1:1 può avere remoteJid = LID (@lid) e remoteJidAlt =
 // numero (@s.whatsapp.net). Qui ricaviamo il numero di telefono vero.
-async function resolvePhoneNumber(sock, key) {
+export async function resolvePhoneNumber(sock, key) {
   for (const j of [key.remoteJid, key.remoteJidAlt]) {
     if (j && j.endsWith('@s.whatsapp.net')) return jidToNumber(j);
   }
@@ -217,7 +221,7 @@ async function resolvePhoneNumber(sock, key) {
 
 // "Spacchetta" i wrapper (messaggi effimeri / view-once): spesso il contenuto
 // reale è annidato lì. Se non c'è wrapper, restituisce il messaggio così com'è.
-function unwrapMessage(message) {
+export function unwrapMessage(message) {
   return (
     message?.ephemeralMessage?.message ||
     message?.viewOnceMessage?.message ||
@@ -227,7 +231,7 @@ function unwrapMessage(message) {
   );
 }
 
-function extractText(message) {
+export function extractText(message) {
   const m = unwrapMessage(message);
   return (
     m.conversation ||
@@ -242,7 +246,7 @@ function extractText(message) {
 
 // Classifica il media: tipo leggibile + mimetype dichiarato da WhatsApp.
 // Restituisce null se il messaggio non contiene un media.
-function describeMedia(message) {
+export function describeMedia(message) {
   const m = unwrapMessage(message);
   if (!m) return null;
   if (m.imageMessage) return { kind: 'foto', mimetype: m.imageMessage.mimetype };
@@ -266,7 +270,7 @@ function describeMedia(message) {
 // Dimensione dichiarata dal mittente nel protocollo, se presente.
 // È un valore che arriva dall'esterno, quindi non ci si può fidare: serve solo
 // a scartare in anticipo i file palesemente enormi, prima di scaricarli.
-function declaredFileLength(message) {
+export function declaredFileLength(message) {
   const m = unwrapMessage(message);
   const media =
     m?.imageMessage || m?.audioMessage || m?.videoMessage || m?.documentMessage ||

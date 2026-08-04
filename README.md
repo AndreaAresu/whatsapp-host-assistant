@@ -20,6 +20,15 @@ testabile in locale senza WhatsApp.
 4. Scrivi messaggi come farebbe un cliente (in qualsiasi lingua) e osserva la
    decisione del bot: categoria, se invia o escala, e la bozza di risposta.
 
+## Test
+```
+npm test
+```
+Girano in locale in meno di un secondo: non serve rete, non chiamano né Claude
+né Gemini né Telegram (le API sono finte) e non toccano i tuoi file veri
+(`allowlist.json`, `knowledge/learned.json`, `data/bot.db`), che vengono
+dirottati in una cartella temporanea. Falli girare dopo ogni modifica al codice.
+
 ## Struttura
 - `knowledge/casa.md` — base di conoscenza, fonte delle risposte. **Riempi i «DA COMPLETARE».**
 - `src/brain.js` — chiamata a Claude: classifica, decide invia/escala, scrive la bozza.

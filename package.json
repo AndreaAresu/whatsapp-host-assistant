@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "node src/index.js",
+    "test": "node --experimental-test-module-mocks --test --test-reporter=spec test/",
     "brain": "node src/test-cli.js",
     "telegram": "node src/test-telegram.js"
   },

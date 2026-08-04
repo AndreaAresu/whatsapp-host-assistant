@@ -9,16 +9,22 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 npm install
 npm start        # app completa: WhatsApp (Baileys) + bot di controllo Telegram
+npm test         # suite automatica (node:test), offline e senza costi
 npm run brain    # REPL locale: solo il "cervello" (think), nessun canale reale
 npm run telegram # REPL + Telegram reale, invio al cliente simulato (stdout)
 ```
 
-Non ci sono test automatici né linter: la verifica si fa con i due REPL sopra
-(`src/test-cli.js`, `src/test-telegram.js`), che sono l'unico modo per provare
-una modifica al prompt o alla pipeline senza toccare WhatsApp.
+`npm test` usa il runner integrato di Node (nessuna dipendenza in più) e gira
+in meno di un secondo. Serve il flag `--experimental-test-module-mocks`, già
+nello script: senza, `mock.module()` non è disponibile.
 
-Non è un repository git: il deploy avviene via `rsync` verso il VPS (vedi
-`DEPLOY.md`), dove gira come servizio systemd `costa-rei-bot`.
+Non c'è linter. Per provare il **comportamento del modello** (prompt, tono,
+qualità delle bozze) restano i due REPL (`src/test-cli.js`,
+`src/test-telegram.js`): i test coprono la pipeline attorno a Claude, non le
+sue risposte, che richiedono chiamate vere.
+
+Il deploy avviene via `rsync` verso il VPS (vedi `DEPLOY.md`), dove gira come
+servizio systemd `costa-rei-bot`.
 
 ## Architettura
 
@@ -83,7 +89,9 @@ significherebbe duplicare le regole di casa su due provider.
   `learned.json` o `allowlist.json`: non è atomica e un riavvio a metà scrittura
   li tronca. `readJsonArray` mette in quarantena i file illeggibili
   (`.corrotto-<ts>`) invece di ignorarli — ignorandoli, la prima scrittura
-  successiva li sovrascriverebbe distruggendo dati recuperabili.
+  successiva li sovrascriverebbe distruggendo dati recuperabili. I percorsi si
+  possono sovrascrivere con `ALLOWLIST_PATH`, `LEARNED_PATH` e `BOT_DB_PATH`:
+  **serve solo ai test**, in produzione restano i file accanto al codice.
 - **Gli errori tecnici non devono restare silenziosi**: se la pipeline fallisce
   (rate limit, overload), `index.js` avvisa l'host via Telegram invece di
   propagare, così può rispondere a mano. Le eccezioni di `notifyHost` e degli
@@ -131,6 +139,31 @@ significherebbe duplicare le regole di casa su due provider.
 - **Ogni percorso media degrada, mai fallisce**: chiave assente, download fallito,
   audio incomprensibile o formato non supportato finiscono tutti nella notifica
   all'host — cioè il comportamento che il bot aveva prima di questa funzione.
+
+### I test (`test/`, `npm test`)
+
+Un file per modulo, in italiano come il resto. Coprono la pipeline attorno a
+Claude: instradamento invia/escala, lettura dei messaggi Baileys, archivi JSON,
+memoria SQLite, bot Telegram (per intero, via `bot.handleUpdate()` con le API
+intercettate da un transformer di grammy). Le API esterne sono **sempre finte**
+(`mock.module` su `@anthropic-ai/sdk` e `@google/genai`): la suite non fa
+chiamate di rete e non costa niente.
+
+Due regole da non rompere:
+
+- **Nessun test tocca i file veri.** `test/helpers.js` → `cartellaTemporanea()`
+  dirotta `ALLOWLIST_PATH`, `LEARNED_PATH` e `BOT_DB_PATH` in una cartella
+  usa-e-getta, e va chiamata in cima a **ogni** file di test, anche in quelli
+  che gli archivi non li usano: basta importare `telegram.js`, che importa
+  `allowlist.js`, per ritrovarsi collegati alla lista vera dell'host. Deve
+  reggere anche col codice rotto, non solo col codice giusto.
+- **Le variabili d'ambiente vanno impostate prima degli `import` da `src/`**,
+  con `await import()` dinamico: i percorsi degli archivi vengono letti una
+  volta sola al caricamento del modulo.
+
+I test più importanti sono quelli marcati `SICUREZZA:` in `brain.test.js` (se
+il modello non chiama `submit_response` si escala) e quelli sulla privacy in
+`telegram*.test.js`: prima di toccarli, rileggi le invarianti qui sopra.
 
 ### File di stato a runtime (tutti gitignorati)
 

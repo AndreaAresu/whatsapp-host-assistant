@@ -4,12 +4,14 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = join(__dirname, '..', 'data');
-mkdirSync(DATA_DIR, { recursive: true });
+// BOT_DB_PATH serve ai test, che girano su un database usa-e-getta invece che
+// sullo storico vero delle conversazioni.
+const DB_PATH = process.env.BOT_DB_PATH || join(__dirname, '..', 'data', 'bot.db');
+mkdirSync(dirname(DB_PATH), { recursive: true });
 
 // Database SQLite persistente (sopravvive ai riavvii). WAL = letture/scritture
 // concorrenti più robuste.
-const db = new Database(join(DATA_DIR, 'bot.db'));
+const db = new Database(DB_PATH);
 db.pragma('journal_mode = WAL');
 
 db.exec(`

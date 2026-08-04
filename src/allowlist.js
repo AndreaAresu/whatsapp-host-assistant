@@ -3,7 +3,9 @@ import { dirname, join } from 'node:path';
 import { readJsonArray, writeJsonAtomic } from './storage.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const PATH = join(__dirname, '..', 'allowlist.json');
+// In produzione è sempre il file accanto al codice. La variabile d'ambiente
+// serve ai test, che non devono toccare l'allowlist vera dell'host.
+const PATH = process.env.ALLOWLIST_PATH || join(__dirname, '..', 'allowlist.json');
 
 /** Tiene solo le cifre (es. "+39 333 12 34" -> "393331234"). */
 export function normalizeNumber(input) {

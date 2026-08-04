@@ -4,7 +4,10 @@ import { randomUUID } from 'node:crypto';
 import { readJsonArray, writeJsonAtomic } from './storage.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const LEARNED_PATH = join(__dirname, '..', 'knowledge', 'learned.json');
+// Come per l'allowlist: la variabile d'ambiente serve solo ai test, per non
+// scrivere sulle FAQ vere.
+const LEARNED_PATH =
+  process.env.LEARNED_PATH || join(__dirname, '..', 'knowledge', 'learned.json');
 
 // Le info sulla zona "scadono": un ristorante può chiudere, un orario cambiare.
 // Le regole della casa invece non scadono.
