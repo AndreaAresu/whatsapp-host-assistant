@@ -1,0 +1,20 @@
+{
+  "name": "chat-bot-costa-rei",
+  "version": "0.1.0",
+  "description": "Chat-bot WhatsApp per la casa vacanze a Costa Rei, con human-in-the-loop",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js",
+    "brain": "node src/test-cli.js",
+    "telegram": "node src/test-telegram.js"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "latest",
+    "@whiskeysockets/baileys": "latest",
+    "better-sqlite3": "latest",
+    "dotenv": "latest",
+    "grammy": "latest",
+    "pino": "latest",
+    "qrcode-terminal": "latest"
+  }
+}

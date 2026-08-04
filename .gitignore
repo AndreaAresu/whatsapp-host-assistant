@@ -1,0 +1,8 @@
+node_modules/
+.env
+# dati a runtime (possono contenere info dei clienti)
+knowledge/learned.json
+allowlist.json
+data/
+*.session
+auth_info*/

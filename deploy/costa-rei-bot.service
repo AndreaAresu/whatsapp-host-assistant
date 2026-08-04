@@ -1,0 +1,19 @@
+[Unit]
+Description=Chat-bot WhatsApp Costa Rei
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Sostituisci __USER__ con il tuo utente Linux e __APP_DIR__ con il percorso del progetto.
+User=__USER__
+WorkingDirectory=__APP_DIR__
+# Verifica il percorso di node con: which node  (con NodeSource è /usr/bin/node)
+ExecStart=/usr/bin/node src/index.js
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
