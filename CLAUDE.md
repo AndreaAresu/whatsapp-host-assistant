@@ -12,6 +12,7 @@ npm start        # app completa: WhatsApp (Baileys) + bot di controllo Telegram
 npm test         # suite automatica (node:test), offline e senza costi
 npm run brain    # REPL locale: solo il "cervello" (think), nessun canale reale
 npm run telegram # REPL + Telegram reale, invio al cliente simulato (stdout)
+npm run demo     # demo web su http://localhost:8888 (vedi DEMO.md)
 ```
 
 `npm test` usa il runner integrato di Node (nessuna dipendenza in più) e gira
@@ -110,6 +111,17 @@ significherebbe duplicare le regole di casa su due provider.
   rispedirebbe a ogni turno successivo.
 - **`download()` di `onMedia` è pigro apposta**: va invocato solo dopo il
   controllo allowlist, così i media degli sconosciuti non vengono mai scaricati.
+- **Il media ha la precedenza sul testo** in `classificaMessaggio()`
+  (`whatsapp.js`). Non invertire: `extractText()` restituisce anche la
+  *didascalia* di una foto, quindi instradare prima sul testo faceva finire le
+  foto con didascalia sul ramo testo — `download()` non partiva e l'immagine non
+  arrivava mai a Claude. La didascalia viaggia come `text` dentro `onMedia` e
+  diventa il testo del turno multimodale. Coperto dai test marcati
+  `REGRESSIONE:` in `whatsapp.test.js`.
+- **La demo web non deve MAI leggere `knowledge/casa.md`**: contiene il codice
+  della key-box e l'indirizzo di una casa vera, e la demo risponde a chiunque
+  senza un host che approvi le bozze. `CASA_PATH` la dirotta su
+  `casa.demo.md`, e `LEARNED_PATH` su un file inesistente. Vedi `DEMO.md`.
 
 ### Dettagli non ovvi
 
@@ -129,8 +141,17 @@ significherebbe duplicare le regole di casa su due provider.
 - **Le FAQ di zona scadono** dopo 90 giorni (`EXPIRY_DAYS` in `learned.js`):
   `knowledge.js` le marca «SCADUTA» nel prompt e il system prompt istruisce il
   modello a non fidarsene.
-- **`knowledge/casa.md`** è la fonte canonica delle risposte. Le voci
-  «DA COMPLETARE» sono intenzionali: il prompt le tratta come "non lo so".
+- **`knowledge/casa.md`** è la fonte canonica delle risposte, ma è un file di
+  runtime **fuori dal repo** (indirizzo e codice della key-box veri): nel repo
+  c'è solo `casa.demo.md`. Le voci «DA COMPLETARE» sono intenzionali: il prompt
+  le tratta come "non lo so". Per lo stesso motivo **nessun test lo legge**:
+  `cartellaTemporanea()` scrive una guida finta e ci punta `CASA_PATH`.
+- **La versione del tool `web_search` è legata al modello.** `web_search_20250305`
+  è la variante giusta per Haiku 4.5; `web_search_20260209` (filtro dinamico)
+  richiede Opus 4.6+ / Sonnet 4.6+. Se cambi `MODEL`, ricontrolla `brain.js`.
+- **`think()` accumula `usage` su tutte le chiamate** del ciclo `pause_turn`, non
+  solo l'ultima: una ricerca web può costare due chiamate API per un messaggio.
+  Restituisce anche `steps` (quante chiamate sono servite).
 - **I vocali WhatsApp sono Opus in container Ogg**, mentre Gemini documenta
   "OGG Vorbis". In pratica l'invio diretto funziona; `audio.js` prova prima così
   e solo se l'API rifiuta transcodifica in WAV con `ffmpeg` (opzionale: se manca,
@@ -152,11 +173,13 @@ chiamate di rete e non costa niente.
 Due regole da non rompere:
 
 - **Nessun test tocca i file veri.** `test/helpers.js` → `cartellaTemporanea()`
-  dirotta `ALLOWLIST_PATH`, `LEARNED_PATH` e `BOT_DB_PATH` in una cartella
-  usa-e-getta, e va chiamata in cima a **ogni** file di test, anche in quelli
-  che gli archivi non li usano: basta importare `telegram.js`, che importa
-  `allowlist.js`, per ritrovarsi collegati alla lista vera dell'host. Deve
-  reggere anche col codice rotto, non solo col codice giusto.
+  dirotta `ALLOWLIST_PATH`, `LEARNED_PATH`, `BOT_DB_PATH` e `CASA_PATH` in una
+  cartella usa-e-getta, e va chiamata in cima a **ogni** file di test, anche in
+  quelli che gli archivi non li usano: basta importare `telegram.js`, che
+  importa `allowlist.js`, per ritrovarsi collegati alla lista vera dell'host.
+  Deve reggere anche col codice rotto, non solo col codice giusto. `CASA_PATH`
+  è nell'elenco per un motivo in più: senza, i test passavano solo grazie al
+  `.env` dello sviluppatore, che lo dirotta su `casa.demo.md`.
 - **Le variabili d'ambiente vanno impostate prima degli `import` da `src/`**,
   con `await import()` dinamico: i percorsi degli archivi vengono letti una
   volta sola al caricamento del modulo.
@@ -165,8 +188,86 @@ I test più importanti sono quelli marcati `SICUREZZA:` in `brain.test.js` (se
 il modello non chiama `submit_response` si escala) e quelli sulla privacy in
 `telegram*.test.js`: prima di toccarli, rileggi le invarianti qui sopra.
 
+### La demo web (`web/`, `netlify/`)
+
+Terzo canale dopo il CLI e Telegram, sullo stesso `brain.js`. Documentata in
+`DEMO.md`.
+
+**L'interfaccia della demo è in inglese**, mentre codice, commenti, prompt e
+`casa.demo.md` restano in italiano: chi guarda la demo spesso non parla
+italiano, chi legge il codice sì. Le etichette di `category` e `action` si
+traducono nel frontend (`CATEGORIE`/`AZIONI` in `web/app.js`) e **mai nel
+prompt**: gli enum che il modello consegna restano quelli del bot vero.
+
+**Il pannello chat imita WhatsApp di proposito** (intestazione con Alessio e
+stato, sfondo a doodle, bolle con codina, orario e spunte blu): la demo deve
+dare la sensazione di scrivere all'host, non di usare un chatbot in una pagina.
+Marchio e logo di WhatsApp non sono usati, solo il linguaggio visivo. Gli avvisi
+di sistema stanno nei *chip* centrati che WhatsApp usa già, così restano in tema
+senza nascondere che le risposte sono generate da un'IA. Quando una risposta va
+in escalation la chat **resta in silenzio**, come accadrebbe davvero: è l'inbox
+host a mostrare cosa sta succedendo. Non aggiungere in chat messaggi tipo
+«bozza inviata all'host»: romperebbero l'illusione e sono già nel pannello.
+
+**Foto e vocali passano per gli stessi moduli del bot**, non per copie: la foto
+entra in `think(..., { image })`, il vocale in `transcribeAudio()` di `audio.js`
+e poi rientra come testo. Il browser ridimensiona la foto a 1024px prima di
+spedirla — taglia i token e, ridisegnandola su canvas, elimina l'EXIF (niente
+coordinate GPS in uscita). I tetti sugli allegati stanno in `_valida.mjs`: sono
+la voce di costo più facile da gonfiare dall'esterno.
+
+**`think()` accetta `maxTokens`** (default 1500, la demo usa 700). È una leva di
+LATENZA prima che di costo: la generazione domina il tempo di risposta, e sui
+vocali il budget è già ridotto di ~1,5s dalla trascrizione.
+
+Due vincoli tecnici che ne spiegano la forma:
+
+- **Serverless = stateless.** Niente SQLite, niente FAQ imparate: lo storico
+  vive nel browser e viaggia a ogni richiesta. Per questo è **input non fidato**
+  e passa da `netlify/functions/_valida.mjs`, che scarta tutto ciò che non è
+  `user`/`assistant` con contenuto stringa (un ruolo `system` iniettato dal
+  client avrebbe autorità di istruzione di sistema).
+- **Timeout Netlify: 10s di ESECUZIONE TOTALE sul free** (26s su Pro), e lo
+  streaming **non** lo allunga. Misurato: 2,4-3,5s senza ricerca web, 6-10,3s
+  con. Abbassare `max_uses` non aiuta (la latenza è nella ricerca, non nel loro
+  numero), quindi su free si usa `DEMO_WEB_SEARCH=off` → `maxWebSearches: 0`,
+  che toglie del tutto lo strumento. La funzione impone comunque una scadenza
+  propria (timeout meno 1,2s) per degradare con un messaggio leggibile invece
+  dell'errore grezzo della piattaforma. Lo streaming NDJSON resta per l'attesa
+  percepita: 8 secondi di schermo fermo sembrano un guasto.
+
+**Sul telefono l'altezza non si calcola per sottrazione.** Il layout a colonna
+sola (≤1040px) dà a `body` un'altezza **definita** (`height: 100dvh`, non
+`min-height`) e lascia che sia il riquadro a prendersi lo spazio che avanza. Con
+un `min-height` il contenitore si dimensiona sul contenuto e i figli non si
+stringono mai; con `100vh` iOS Safari usa la viewport a barre nascoste. In
+entrambi i casi il fondo del pannello — cioè la barra di scrittura **col tasto
+di invio** — finisce sotto il bordo dello schermo. Vale anche `min-height: 0`
+sul riquadro: il minimo da desktop (480px) su uno schermo corto rifà lo stesso
+danno.
+
+**I vocali richiedono un contesto sicuro.** `navigator.mediaDevices` non esiste
+fuori da https/localhost: aprendo `npm run demo` dal telefono su
+`http://<ip-locale>:8888` la registrazione non parte, e non è colpa del browser
+(iOS Safari registra da 14.3, in `audio/mp4`, già ammesso da `MIME_AUDIO`).
+`avviaRegistrazione()` distingue i due casi nel messaggio: non unificarli.
+
+**I percorsi nel frontend sono relativi** (`./app.js`, `./api/chat`) e devono
+restarlo: in produzione la pagina vive sotto `estaated.it/assistant/` grazie a un
+rewrite proxy, e un percorso assoluto finirebbe nella regola SPA del sito
+restituendo `index.html`. Per lo stesso motivo il sito forza la barra finale su
+`/assistant`.
+
+Al posto dell'allowlist (che qui non esiste) c'è un tetto di **15 messaggi per
+visitatore all'ora** più un tetto giornaliero globale, su Netlify Blobs. Il
+contatore è visibile nel pannello: un limite che scatta a sorpresa sembra un
+guasto. Se Blobs manca, la funzione lascia
+passare e lo logga: la difesa vera contro la spesa è lo **spending limit sulla
+Console Anthropic**.
+
 ### File di stato a runtime (tutti gitignorati)
 
 `data/bot.db` (conversazioni) · `knowledge/learned.json` (FAQ imparate) ·
-`allowlist.json` (numeri autorizzati) · `auth_info/` (sessione WhatsApp) ·
-`.env`. Sono anche l'elenco esatto da includere nei backup del server.
+`allowlist.json` (numeri autorizzati) · `knowledge/casa.md` (guida vera) ·
+`auth_info/` (sessione WhatsApp) · `.env`. Sono anche l'elenco esatto da
+includere nei backup del server.

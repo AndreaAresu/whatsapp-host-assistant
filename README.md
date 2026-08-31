@@ -4,8 +4,9 @@ Assistente che risponde ai clienti della casa vacanze, con **human-in-the-loop**
 il bot risponde da solo alle domande sicure, e per i casi incerti o delicati ti
 manda una bozza da approvare.
 
-**Stato attuale:** Fase 2 — il "cervello" (classificazione + decisione + bozza),
-testabile in locale senza WhatsApp.
+**Stato attuale:** funzionante su WhatsApp + Telegram, più una **demo web
+pubblica** che mostra l'architettura human-in-the-loop nel browser
+(→ [DEMO.md](DEMO.md), `npm run demo`).
 
 ## Come provarlo
 1. Installa le dipendenze:
@@ -29,8 +30,24 @@ né Gemini né Telegram (le API sono finte) e non toccano i tuoi file veri
 (`allowlist.json`, `knowledge/learned.json`, `data/bot.db`), che vengono
 dirottati in una cartella temporanea. Falli girare dopo ogni modifica al codice.
 
+## Demo web
+Una pagina che fa vedere *come decide* il bot, non solo cosa risponde. La chat è
+indistinguibile da WhatsApp — si può **allegare una foto e registrare un vocale**
+— e accanto ci sono il pannello con categoria/azione/motivo/fonti/token/costo e
+un'inbox host dove approvare o modificare le bozze.
+
+```
+npm run demo    # → http://localhost:8888
+```
+
+Usa una base di conoscenza **fittizia** (`knowledge/casa.demo.md`): la guida vera
+contiene il codice della key-box di una casa reale. Deploy e collegamento a
+`estaated.it/assistant`: vedi [DEMO.md](DEMO.md).
+
 ## Struttura
-- `knowledge/casa.md` — base di conoscenza, fonte delle risposte. **Riempi i «DA COMPLETARE».**
+- `knowledge/casa.md` — base di conoscenza, fonte delle risposte. Non è nel repo
+  (contiene dati veri): parti da `casa.demo.md` e **riempi i «DA COMPLETARE».**
+- `knowledge/casa.demo.md` — la stessa guida con dati inventati, per la demo pubblica.
 - `src/brain.js` — chiamata a Claude: classifica, decide invia/escala, scrive la bozza.
 - `src/knowledge.js` — carica la base di conoscenza + le FAQ imparate.
 - `src/config.js` — configurazione (chiave API, modello, modalità rodaggio).
@@ -84,7 +101,8 @@ Il bot capisce anche i media, non solo il testo.
 
 **Foto** — le guarda Claude, nella stessa chiamata che già classifica e decide:
 una foto vale quanto un messaggio scritto (guasto in casa, elettrodomestico,
-dettaglio della casa). Nello storico resta solo un segnaposto: i byte
+dettaglio della casa). Se la foto ha una **didascalia**, quella diventa il
+messaggio del cliente ("si è rotto questo") e viene letta insieme all'immagine. Nello storico resta solo un segnaposto: i byte
 dell'immagine non entrano mai nel database.
 
 > 🪪 **Documenti d'identità:** se la foto è una carta d'identità, un passaporto
@@ -131,4 +149,5 @@ due volte:
 - [x] Connessione WhatsApp (Baileys) + memoria conversazioni
 - [x] Apprendimento: salvataggio delle risposte approvate nelle FAQ
 - [x] Lettura delle foto (Claude) e trascrizione dei vocali (Gemini)
+- [x] Demo web pubblica con inbox host simulata — vedi [DEMO.md](DEMO.md)
 - [ ] Deploy su un VPS per tenerlo attivo 24/7 — vedi [DEPLOY.md](DEPLOY.md)
