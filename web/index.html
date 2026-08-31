@@ -3,10 +3,27 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Casa Costa Rei Assistant — demo</title>
+<title>Casa Costa Rei Assistant · demo</title>
 <meta name="description" content="Demo of a WhatsApp assistant for a holiday rental, built human-in-the-loop: the model decides whether to answer on its own or ask the host to confirm." />
 <meta name="robots" content="noindex" />
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏖️</text></svg>" />
+<!-- Open Graph e Twitter card: senza, un link condiviso su LinkedIn appare
+     nudo. L'URL dell'immagine deve essere ASSOLUTO, i crawler non risolvono i
+     percorsi relativi. Se il sito Netlify cambia nome, questi due vanno con
+     lui. -->
+<meta property="og:type" content="website" />
+<meta property="og:site_name" content="Casa Costa Rei Assistant" />
+<meta property="og:title" content="A WhatsApp assistant that knows when to ask a human" />
+<meta property="og:description" content="Live demo of a holiday-rental assistant built human-in-the-loop: safe replies go out on their own, anything about prices, dates or breakages becomes a draft the host approves. Shows the model's decision and what each reply costs." />
+<meta property="og:url" content="https://regal-caramel-543676.netlify.app/" />
+<meta property="og:image" content="https://regal-caramel-543676.netlify.app/anteprima.png" />
+<meta property="og:image:width" content="1200" />
+<meta property="og:image:height" content="630" />
+<meta property="og:image:alt" content="The demo: a WhatsApp-style chat, the model's decision panel, and the host inbox side by side." />
+<meta name="twitter:card" content="summary_large_image" />
+<meta name="twitter:title" content="A WhatsApp assistant that knows when to ask a human" />
+<meta name="twitter:description" content="Live demo of a holiday-rental assistant built human-in-the-loop. Claude decides; anything risky becomes a draft the host approves." />
+<meta name="twitter:image" content="https://regal-caramel-543676.netlify.app/anteprima.png" />
 <link rel="stylesheet" href="./style.css" />
 </head>
 <body>
@@ -70,7 +87,7 @@
       <div class="wa-riga in">
         <div class="wa-bolla">
           <span class="wa-testo">Hi! 👋 I'm Alessio, the host of the house in Costa Rei.
-Message me about anything — check-in, how something works in the house, or tips about the area. I also reply in Italian and Spanish 😊</span>
+Message me about anything: check-in, how something works in the house, tips about the area. I also reply in Italian and Spanish 😊</span>
           <span class="wa-ora">9:41</span>
         </div>
       </div>
@@ -182,8 +199,19 @@ Message me about anything — check-in, how something works in the house, or tip
         tools: native <code>web_search</code> (geolocated on Costa Rei) and
         <code>submit_response</code>, through which the model hands back a
         structured decision instead of free text.</p>
+        <p><strong>Web search is switched off on this deploy</strong>, and that
+        is a measurement, not an oversight. Netlify's free tier caps a function
+        at 10 seconds of total execution, which streaming does not extend.
+        Measured here: 2.4 to 3.5 seconds without search, 7.1 to 10.3 with it.
+        Two questions out of three would die on the timeout, so
+        <code>DEMO_WEB_SEARCH=off</code> drops the tool entirely rather than
+        failing at random. The same pipeline runs it on the real bot, where no
+        such limit applies.</p>
         <p>The house guide sits in its own system-prompt block with
-        <code>cache_control</code>: from the second question on it costs a tenth.</p>
+        <code>cache_control</code>: from the second question on the input costs
+        a tenth. The minimum cacheable prefix on Haiku 4.5 is 4096 tokens, and
+        below it caching is skipped silently, so the guide is deliberately kept
+        above that line.</p>
         <p><strong>If the model never calls <code>submit_response</code>, the
         message is escalated.</strong> An uncertain case costs the host one
         message; a wrong one costs a guest's trust.</p>
@@ -197,7 +225,7 @@ Message me about anything — check-in, how something works in the house, or tip
   <section class="riquadro" id="p-inbox">
     <div class="riquadro-testa">
       <h2>Host inbox</h2>
-      <span class="sotto">drafts awaiting approval — in the real bot these arrive on Telegram</span>
+      <span class="sotto">drafts awaiting approval · in the real bot these arrive on Telegram</span>
     </div>
 
     <div class="corpo-scroll" id="inbox">

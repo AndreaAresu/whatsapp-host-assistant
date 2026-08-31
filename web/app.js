@@ -36,6 +36,7 @@ let inAttesa = false;
 let bozzeAperte = 0;
 let fotoInAttesa = null; // { data, mediaType, anteprima, byte }
 let registratore = null; // MediaRecorder attivo
+let esaurito = false; // messaggi di prova finiti: i controlli restano spenti
 
 const sessione = { messaggi: 0, costo: 0, riscattato: 0 };
 
@@ -283,6 +284,17 @@ function aggiornaIconaInvio() {
   el.iconaMicro.hidden = c;
 }
 
+/**
+ * Unico punto che accende e spegne la barra di scrittura. Tenerlo in un posto
+ * solo evita lo stato misto di prima, con il tasto di invio vivo e il resto no.
+ */
+function aggiornaControlli() {
+  const spenti = esaurito || inAttesa;
+  el.input.disabled = spenti;
+  el.invia.disabled = spenti;
+  el.graffetta.disabled = spenti;
+}
+
 /* ── Chat (aspetto WhatsApp) ────────────────────────────────────────────── */
 
 // La pagina è in inglese per i lettori stranieri, quindi ora e numeri seguono
@@ -426,10 +438,15 @@ function mostraDecisione(d) {
     $('s-rimasti').textContent = `${d.rimanenti} / ${d.limite}`;
     if (d.rimanenti === 3) nota('3 demo messages left.', 'attesa');
     if (d.rimanenti === 0) {
-      nota('You have used every demo message for this hour.', 'attesa');
-      el.input.disabled = true;
-      el.invia.disabled = true;
-      el.graffetta.disabled = true;
+      const fra = d.riparteFraMinuti
+        ? ` They reset in about ${d.riparteFraMinuti} minutes.`
+        : '';
+      nota(`You have used every demo message for this hour.${fra}`, 'attesa');
+      // Il flag, non i soli .disabled: il blocco finally di manda() gira DOPO
+      // questa funzione e riaccendeva il pulsante di invio, lasciando campo e
+      // graffetta spenti. Mezza barra viva e mezza morta sembra un guasto.
+      esaurito = true;
+      aggiornaControlli();
     }
   }
 
@@ -491,13 +508,33 @@ aggiornaIconaInvio();
 
   bIgn.onclick = () => chiudi('🚫 The host discarded the draft — nothing was sent to the guest.');
 
+  // La modifica SOSTITUISCE l'anteprima invece di affiancarla: prima si vedeva
+  // lo stesso testo due volte, in sola lettura e nella casella, e il pulsante
+  // «Edit» restava lì senza fare più niente. Ora fa da annulla.
+  const inviaOriginale = bInvia.onclick;
+  let ta = null;
+
+  const chiudiModifica = () => {
+    ta.remove();
+    ta = null;
+    testoBozza.hidden = false;
+    bMod.textContent = '✏️ Edit';
+    bInvia.textContent = '✅ Send';
+    bInvia.onclick = inviaOriginale;
+  };
+
   bMod.onclick = () => {
-    if (card.querySelector('textarea')) return;
-    const ta = document.createElement('textarea');
+    if (ta) { chiudiModifica(); return; }
+
+    ta = document.createElement('textarea');
     ta.value = decisione.draft || '';
     ta.placeholder = 'Write the reply to send to the guest…';
+    testoBozza.hidden = true;
     card.insertBefore(ta, bottoni);
     ta.focus();
+    ta.setSelectionRange(ta.value.length, ta.value.length);
+
+    bMod.textContent = '↩︎ Cancel';
     bInvia.textContent = '✅ Send the edited text';
     bInvia.onclick = () => {
       const t = ta.value.trim();
@@ -516,8 +553,9 @@ async function manda(testo, allegati = {}) {
   if (inAttesa) return;
   if (!testo.trim() && !foto && !audio) return;
 
+  if (esaurito) return;
   inAttesa = true;
-  el.invia.disabled = true;
+  aggiornaControlli();
   el.input.value = '';
   togliAllegato();
   aggiornaIconaInvio();
@@ -620,8 +658,8 @@ async function manda(testo, allegati = {}) {
     console.error(err);
   } finally {
     inAttesa = false;
-    el.invia.disabled = false;
-    el.input.focus();
+    aggiornaControlli();
+    if (!esaurito) el.input.focus();
   }
 }
 

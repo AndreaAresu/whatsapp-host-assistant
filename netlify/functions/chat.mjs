@@ -88,7 +88,11 @@ const MAX_RICERCHE_WEB_DEMO = RICERCA_WEB_ATTIVA ? 2 : 0;
 // senza, un solo visitatore può bruciare i crediti di una giornata. La finestra
 // è lunga apposta — 15 messaggi bastano per capire cosa fa il bot, e chi ne
 // vuole di più sta giocando, non valutando.
-const LIMITE_IP = Number(process.env.LIMITE_MESSAGGI) || 15;
+// 15 erano pochi: chi prova la demo sul serio vuole vedere i due modi
+// (rodaggio acceso e spento), una foto e un vocale, e li finisce prima di
+// arrivare alla parte interessante. Il tetto di SPESA resta comunque
+// LIMITE_GIORNALIERO, che non dipende da questo numero.
+const LIMITE_IP = Number(process.env.LIMITE_MESSAGGI) || 25;
 const FINESTRA_IP_MS = (Number(process.env.FINESTRA_MINUTI) || 60) * 60 * 1000;
 const LIMITE_GIORNALIERO = Number(process.env.LIMITE_GIORNALIERO) || 300;
 
@@ -142,7 +146,7 @@ async function controllaLimiti(ip) {
         stato: 429,
         messaggio:
           `You have used all ${LIMITE_IP} demo messages. ` +
-          `They reset in ~${attesa} minutes — a deliberate spending cap.`,
+          `They reset in about ${attesa} minutes. It's a deliberate spending cap.`,
       };
     }
 
@@ -151,11 +155,15 @@ async function controllaLimiti(ip) {
       da: finestraScaduta ? adesso : voce.da,
     });
     await store.setJSON(chiaveGiorno, { n: giorno.n + 1 });
+    const inizioFinestra = finestraScaduta ? adesso : voce.da;
     return {
       ok: true,
       rimanenti: LIMITE_IP - conteggio - 1, // quanti ne restano a QUESTO visitatore
       limite: LIMITE_IP,
       rimanentiOggi: LIMITE_GIORNALIERO - giorno.n - 1,
+      // Minuti al reset: se finiscono i messaggi, un contatore fermo senza
+      // dire quando riparte sembra un guasto e l'unica via è ricaricare.
+      riparteFraMinuti: Math.max(1, Math.ceil((FINESTRA_IP_MS - (adesso - inizioFinestra)) / 60000)),
     };
   } catch (err) {
     console.error('⚠️  Errore nel rate limiting: lascio passare.', err.message);
@@ -314,6 +322,7 @@ export default async (req, context) => {
           rimanenti: limiti.rimanenti ?? null,
           limite: limiti.limite,
           rimanentiOggi: limiti.rimanentiOggi ?? null,
+          riparteFraMinuti: limiti.riparteFraMinuti ?? null,
         });
       } catch (err) {
         clearInterval(battito);

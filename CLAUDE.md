@@ -2,7 +2,10 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-> Il codice, i commenti e la documentazione di questo repo sono in italiano: mantieni la stessa lingua nelle modifiche.
+> Il codice, i commenti e la documentazione di questo repo sono in italiano:
+> mantieni la stessa lingua nelle modifiche. **Due eccezioni**, entrambe rivolte
+> a chi arriva da fuori e spesso non parla italiano: il `README.md` e
+> l'interfaccia della demo web.
 
 ## Comandi
 
