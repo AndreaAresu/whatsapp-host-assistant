@@ -90,6 +90,30 @@ test('SICUREZZA: senza decisione strutturata si escala, non si inventa', async (
   assert.match(d.reason, /escalating for safety/);
 });
 
+test('SICUREZZA: un «invia» senza bozza diventa escalation, non un messaggio vuoto', async () => {
+  // Succede quando max_tokens tronca la chiamata al tool a metà: category e
+  // action sono già arrivate, draft e reason no. Senza questa guardia il
+  // cliente riceveva una bolla vuota.
+  risposte = [
+    {
+      content: [
+        {
+          type: 'tool_use',
+          name: 'submit_response',
+          input: { category: 'regole_casa', action: 'invia', language: 'it' },
+        },
+      ],
+      stop_reason: 'max_tokens',
+      usage: { input_tokens: 10, output_tokens: 300 },
+    },
+  ];
+
+  const d = await think('A che ora è il check-out?');
+
+  assert.equal(d.action, 'escala');
+  assert.equal(d.draft, '');
+});
+
 test('SICUREZZA: un tool diverso da submit_response non vale come decisione', async () => {
   risposte = [
     {
@@ -138,7 +162,7 @@ test('il messaggio del cliente arriva come unico turno utente', async () => {
   ]);
 });
 
-test('i messaggi di fila dello stesso ruolo vengono uniti (l’API vuole l’alternanza)', async () => {
+test('i messaggi di fila dello stesso ruolo vengono uniti in un turno solo', async () => {
   risposte = [conDecisione()];
 
   await think('E il parcheggio?', [
@@ -147,11 +171,43 @@ test('i messaggi di fila dello stesso ruolo vengono uniti (l’API vuole l’alt
     { role: 'assistant', content: 'Dimmi!' },
   ]);
 
-  assert.deepEqual(chiamate[0].messages, [
-    { role: 'user', content: 'Ciao\nSenti una cosa' },
-    { role: 'assistant', content: 'Dimmi!' },
+  const m = chiamate[0].messages;
+  assert.equal(m.length, 3);
+  assert.deepEqual(m.map((x) => x.role), ['user', 'assistant', 'user']);
+  assert.equal(m[1].content, 'Dimmi!');
+  // L'ultimo turno è uno solo, non ci sono user consecutivi.
+  assert.equal(m[2].content, 'E il parcheggio?');
+});
+
+// REGRESSIONE: con REVIEW_EVERYTHING attivo ogni risposta va all'host, quindi
+// nello storico NON entra mai un turno assistente e i messaggi del cliente si
+// accumulano. Uniti con un semplice a capo, il modello rispondeva al primo
+// della pila invece che all'ultimo: chiedendo del WiFi si vedeva arrivare la
+// risposta sul check-in. I tag separano le domande vecchie da quella attuale.
+test('REGRESSIONE: fra più messaggi scoperti, l’ultimo è marcato come attuale', async () => {
+  risposte = [conDecisione()];
+
+  await think('Il wifi non funziona', [
+    { role: 'user', content: 'A che ora è il check-in?' },
     { role: 'user', content: 'E il parcheggio?' },
   ]);
+
+  const turno = chiamate[0].messages.at(-1).content;
+  assert.match(turno, /<messaggio_attuale>\nIl wifi non funziona\n<\/messaggio_attuale>/);
+  assert.match(turno, /<messaggi_precedenti_senza_risposta>\nA che ora è il check-in\?\nE il parcheggio\?/);
+  // Le domande vecchie NON devono finire dentro il messaggio attuale.
+  assert.doesNotMatch(turno.split('<messaggio_attuale>')[1], /check-in/);
+});
+
+test('un solo messaggio del cliente resta pulito, senza tag', async () => {
+  risposte = [conDecisione()];
+
+  await think('A che ora è il check-out?', [
+    { role: 'user', content: 'Ciao' },
+    { role: 'assistant', content: 'Dimmi!' },
+  ]);
+
+  assert.equal(chiamate[0].messages.at(-1).content, 'A che ora è il check-out?');
 });
 
 test('uno storico che inizia con l’assistente viene tagliato in testa', async () => {

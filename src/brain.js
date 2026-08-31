@@ -32,8 +32,9 @@ draft: ¡Hola! Sí, el Supermercato G. Tre está a unos 800 metros, 10 minutos a
 
 REGOLE FONDAMENTALI:
 1. La lingua del messaggio del cliente è la lingua in cui scrivi il campo "draft" E il campo "reason". Cliente in inglese: draft in inglese e reason in inglese. Cliente in spagnolo: entrambi in spagnolo. Cliente in italiano: entrambi in italiano. Vale per qualsiasi altra lingua.
-2. Usa SOLO le informazioni presenti nella BASE DI CONOSCENZA fornita o, per le domande sulla zona, quelle trovate con la ricerca web. NON inventare mai dati (orari, password WiFi, indirizzi, prezzi della casa, ecc.). Se un'informazione sulla casa è segnata «DA COMPLETARE» o non è presente, consideralo come "non lo so".
-3. Scrivi SEMPRE una bozza di risposta pronta da inviare (nella lingua del cliente), anche quando vai in escalation: così all'host basta confermarla o modificarla. Se non sai qualcosa, la bozza dev'essere onesta e non deve inventare.
+2. Il cliente può aver scritto più messaggi di fila senza ricevere risposta: succede ogni volta che una bozza precedente è ancora in attesa dell'approvazione dell'host, e per il cliente è come se l'host non avesse ancora letto. In quel caso il suo turno arriva diviso in due parti: dentro <messaggi_precedenti_senza_risposta> ci sono le domande vecchie, dentro <messaggio_attuale> quella a cui il cliente sta aspettando risposta ADESSO. Rispondi a <messaggio_attuale>. Le precedenti sono contesto: se stanno bene insieme puoi toccarle nella stessa risposta, ma il punto di partenza è sempre <messaggio_attuale>. Non nominare mai questi tag al cliente.
+3. Usa SOLO le informazioni presenti nella BASE DI CONOSCENZA fornita o, per le domande sulla zona, quelle trovate con la ricerca web. NON inventare mai dati (orari, password WiFi, indirizzi, prezzi della casa, ecc.). Se un'informazione sulla casa è segnata «DA COMPLETARE» o non è presente, consideralo come "non lo so".
+4. Scrivi SEMPRE una bozza di risposta pronta da inviare (nella lingua del cliente), anche quando vai in escalation: così all'host basta confermarla o modificarla. Se non sai qualcosa, la bozza dev'essere onesta e non deve inventare.
 
 IMMAGINI:
 - Il cliente può allegare una foto. Guardala e tieni conto di quello che mostra: di solito è un guasto o un problema in casa (elettrodomestico, perdita d'acqua, danno), oppure un dettaglio della casa o della zona su cui sta chiedendo.
@@ -128,24 +129,51 @@ const RESPONSE_TOOL = {
 
 // L'API richiede messaggi che si alternano user/assistant a partire da "user".
 // I clienti spesso mandano più messaggi di fila: qui li uniamo in un turno solo.
+/**
+ * Fonde i turni consecutivi dello stesso ruolo (i clienti mandano più messaggi
+ * di fila) e taglia in testa finché non si parte da un turno "user".
+ *
+ * Più messaggi del CLIENTE di fila vogliono dire che a quelli prima non è mai
+ * stata consegnata una risposta: succede a ogni escalation, e in rodaggio
+ * l'escalation è sempre. Incollandoli con un semplice a capo il confine
+ * spariva e il modello rispondeva al primo della pila invece che all'ultimo
+ * (misurato: rispondeva al check-in mentre il cliente chiedeva del WiFi). I tag
+ * rendono il confine esplicito. Sul turno singolo, che è il caso normale, non
+ * si aggiunge niente.
+ */
 function normalizeMessages(messages) {
-  const out = [];
+  const gruppi = [];
   for (const m of messages) {
-    const last = out[out.length - 1];
-    if (
-      last &&
-      last.role === m.role &&
-      typeof last.content === 'string' &&
-      typeof m.content === 'string'
-    ) {
-      last.content += '\n' + m.content;
+    const ultimo = gruppi[gruppi.length - 1];
+    if (ultimo && ultimo.role === m.role) ultimo.parti.push(m.content);
+    else gruppi.push({ role: m.role, parti: [m.content] });
+  }
+
+  const out = [];
+  for (const g of gruppi) {
+    const testuali = g.parti.every((c) => typeof c === 'string');
+    if (g.parti.length === 1 || !testuali) {
+      // Con un allegato il contenuto è un array di blocchi: non si fonde, e
+      // l'API accetta comunque turni consecutivi dello stesso ruolo.
+      for (const c of g.parti) out.push({ role: g.role, content: c });
+    } else if (g.role !== 'user') {
+      out.push({ role: g.role, content: g.parti.join('\n') });
     } else {
-      out.push({ role: m.role, content: m.content });
+      const attuale = g.parti[g.parti.length - 1];
+      const precedenti = g.parti.slice(0, -1).join('\n');
+      out.push({
+        role: 'user',
+        content:
+          `<messaggi_precedenti_senza_risposta>\n${precedenti}\n</messaggi_precedenti_senza_risposta>\n` +
+          `<messaggio_attuale>\n${attuale}\n</messaggio_attuale>`,
+      });
     }
   }
+
   while (out.length && out[0].role !== 'user') out.shift();
   return out;
 }
+
 
 function systemBlocks(knowledgeText) {
   return [
@@ -290,7 +318,26 @@ export async function think(
     };
   }
 
-  return { ...toolUse.input, sources, usage, steps };
+  const decisione = { ...toolUse.input, sources, usage, steps };
+
+  // SICUREZZA: un "invia" senza bozza manderebbe al cliente un messaggio vuoto.
+  // Non è teorico: se la generazione sbatte contro max_tokens a metà della
+  // chiamata al tool, l'input arriva troncato e i campi finali mancano, mentre
+  // category e action ci sono già. Stessa regola del ramo qui sopra: nel dubbio
+  // si escala, così l'host se ne accorge invece del cliente. Una bozza vuota
+  // con "escala" invece è legittima, il modello a volte non sa cosa proporre.
+  if (decisione.action === 'invia' && !String(decisione.draft ?? '').trim()) {
+    return {
+      ...decisione,
+      action: 'escala',
+      draft: '',
+      reason:
+        decisione.reason ||
+        'The model delivered no draft (likely truncated): escalating for safety.',
+    };
+  }
+
+  return decisione;
 }
 
 const LEARN_TOOL = {
