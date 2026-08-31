@@ -3,7 +3,11 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { loadLearned, isExpired } from './learned.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
+// NB: la costante NON si chiama `__dirname`. Il bundler ESM di Netlify
+// aggiunge un proprio shim con quel nome DOPO il bundling, quindi esbuild non
+// sa di doverlo rinominare: due dichiarazioni omonime nello stesso modulo
+// finale sono un SyntaxError, e la funzione non carica affatto (502).
+const QUI = dirname(fileURLToPath(import.meta.url));
 // Come per ALLOWLIST_PATH / LEARNED_PATH / BOT_DB_PATH, la variabile d'ambiente
 // serve a puntare altrove senza toccare il codice. Qui il caso d'uso è la DEMO
 // WEB PUBBLICA, che deve usare `casa.demo.md`: la guida vera contiene il codice
@@ -11,7 +15,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 // chiunque senza un host che approvi le bozze.
 // In produzione (bot WhatsApp) resta il file accanto al codice.
 const CASA_PATH =
-  process.env.CASA_PATH || join(__dirname, '..', 'knowledge', 'casa.md');
+  process.env.CASA_PATH || join(QUI, '..', 'knowledge', 'casa.md');
 
 /**
  * Carica la base di conoscenza: la guida casa (statica) + le FAQ imparate

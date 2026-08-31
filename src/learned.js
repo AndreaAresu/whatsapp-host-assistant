@@ -3,11 +3,15 @@ import { dirname, join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { readJsonArray, writeJsonAtomic } from './storage.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
+// NB: la costante NON si chiama `__dirname`. Il bundler ESM di Netlify
+// aggiunge un proprio shim con quel nome DOPO il bundling, quindi esbuild non
+// sa di doverlo rinominare: due dichiarazioni omonime nello stesso modulo
+// finale sono un SyntaxError, e la funzione non carica affatto (502).
+const QUI = dirname(fileURLToPath(import.meta.url));
 // Come per l'allowlist: la variabile d'ambiente serve solo ai test, per non
 // scrivere sulle FAQ vere.
 const LEARNED_PATH =
-  process.env.LEARNED_PATH || join(__dirname, '..', 'knowledge', 'learned.json');
+  process.env.LEARNED_PATH || join(QUI, '..', 'knowledge', 'learned.json');
 
 // Le info sulla zona "scadono": un ristorante può chiudere, un orario cambiare.
 // Le regole della casa invece non scadono.

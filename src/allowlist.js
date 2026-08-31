@@ -2,10 +2,14 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { readJsonArray, writeJsonAtomic } from './storage.js';
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
+// NB: la costante NON si chiama `__dirname`. Il bundler ESM di Netlify
+// aggiunge un proprio shim con quel nome DOPO il bundling, quindi esbuild non
+// sa di doverlo rinominare: due dichiarazioni omonime nello stesso modulo
+// finale sono un SyntaxError, e la funzione non carica affatto (502).
+const QUI = dirname(fileURLToPath(import.meta.url));
 // In produzione è sempre il file accanto al codice. La variabile d'ambiente
 // serve ai test, che non devono toccare l'allowlist vera dell'host.
-const PATH = process.env.ALLOWLIST_PATH || join(__dirname, '..', 'allowlist.json');
+const PATH = process.env.ALLOWLIST_PATH || join(QUI, '..', 'allowlist.json');
 
 /** Tiene solo le cifre (es. "+39 333 12 34" -> "393331234"). */
 export function normalizeNumber(input) {
