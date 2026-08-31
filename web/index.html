@@ -7,23 +7,24 @@
 <meta name="description" content="Demo of a WhatsApp assistant for a holiday rental, built human-in-the-loop: the model decides whether to answer on its own or ask the host to confirm." />
 <meta name="robots" content="noindex" />
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏖️</text></svg>" />
-<!-- Open Graph e Twitter card: senza, un link condiviso su LinkedIn appare
-     nudo. L'URL dell'immagine deve essere ASSOLUTO, i crawler non risolvono i
-     percorsi relativi. Se il sito Netlify cambia nome, questi due vanno con
-     lui. -->
+<!-- Open Graph e Twitter card: sono i tag che LinkedIn, WhatsApp e Slack
+     leggono per costruire l'anteprima di un link. Senza, esce il link nudo.
+     Gli URL devono essere ASSOLUTI: i crawler non risolvono i percorsi
+     relativi. Puntano al dominio pubblico e non a quello Netlify, così un
+     eventuale rinomina del sito non li rompe. -->
 <meta property="og:type" content="website" />
 <meta property="og:site_name" content="Casa Costa Rei Assistant" />
 <meta property="og:title" content="A WhatsApp assistant that knows when to ask a human" />
 <meta property="og:description" content="Live demo of a holiday-rental assistant built human-in-the-loop: safe replies go out on their own, anything about prices, dates or breakages becomes a draft the host approves. Shows the model's decision and what each reply costs." />
-<meta property="og:url" content="https://regal-caramel-543676.netlify.app/" />
-<meta property="og:image" content="https://regal-caramel-543676.netlify.app/anteprima.png" />
+<meta property="og:url" content="https://estaated.it/assistant/" />
+<meta property="og:image" content="https://estaated.it/assistant/anteprima.png" />
 <meta property="og:image:width" content="1200" />
 <meta property="og:image:height" content="630" />
 <meta property="og:image:alt" content="The demo: a WhatsApp-style chat, the model's decision panel, and the host inbox side by side." />
 <meta name="twitter:card" content="summary_large_image" />
 <meta name="twitter:title" content="A WhatsApp assistant that knows when to ask a human" />
 <meta name="twitter:description" content="Live demo of a holiday-rental assistant built human-in-the-loop. Claude decides; anything risky becomes a draft the host approves." />
-<meta name="twitter:image" content="https://regal-caramel-543676.netlify.app/anteprima.png" />
+<meta name="twitter:image" content="https://estaated.it/assistant/anteprima.png" />
 <link rel="stylesheet" href="./style.css" />
 </head>
 <body>

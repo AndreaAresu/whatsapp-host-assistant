@@ -6,7 +6,7 @@ conditioning works, where to park) and turns everything else into a draft the
 host approves from Telegram: prices, dates, breakages, anything about the area
 it has not verified.
 
-**[Live demo →](https://regal-caramel-543676.netlify.app/)** The demo shows the
+**[Live demo →](https://estaated.it/assistant/)** The demo shows the
 part that is normally invisible: what the model decided, why, what it cost, and
 the host inbox where a draft waits for approval.
 
