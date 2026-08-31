@@ -4,7 +4,14 @@ import { dirname, join } from 'node:path';
 import { loadLearned, isExpired } from './learned.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const CASA_PATH = join(__dirname, '..', 'knowledge', 'casa.md');
+// Come per ALLOWLIST_PATH / LEARNED_PATH / BOT_DB_PATH, la variabile d'ambiente
+// serve a puntare altrove senza toccare il codice. Qui il caso d'uso è la DEMO
+// WEB PUBBLICA, che deve usare `casa.demo.md`: la guida vera contiene il codice
+// della key-box e l'indirizzo esatto di una casa reale, e la demo risponde a
+// chiunque senza un host che approvi le bozze.
+// In produzione (bot WhatsApp) resta il file accanto al codice.
+const CASA_PATH =
+  process.env.CASA_PATH || join(__dirname, '..', 'knowledge', 'casa.md');
 
 /**
  * Carica la base di conoscenza: la guida casa (statica) + le FAQ imparate

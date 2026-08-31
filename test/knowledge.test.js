@@ -3,27 +3,26 @@
 // fiderebbe di un'informazione di zona vecchia di mesi.
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { rmSync, writeFileSync, readFileSync } from 'node:fs';
-import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { cartellaTemporanea } from './helpers.js';
+import { rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { cartellaTemporanea, GUIDA_FINTA } from './helpers.js';
 
+// La guida casa la mette cartellaTemporanea() nella cartella usa-e-getta e
+// CASA_PATH ci punta: il file vero è un file di runtime, fuori dal repo.
 const dir = cartellaTemporanea('knowledge');
 const PATH = join(dir, 'learned.json');
 process.env.LEARNED_PATH = PATH;
 
 const { loadKnowledge } = await import('../src/knowledge.js');
 
-const CASA_PATH = join(dirname(fileURLToPath(import.meta.url)), '..', 'knowledge', 'casa.md');
-
 const scriviFaq = (faq) => writeFileSync(PATH, JSON.stringify(faq, null, 2));
 
 beforeEach(() => rmSync(PATH, { force: true }));
 
-test('la base di conoscenza contiene la guida casa vera', () => {
+test('la base di conoscenza contiene la guida casa indicata da CASA_PATH', () => {
   const { text, casa } = loadKnowledge();
 
-  assert.equal(casa, readFileSync(CASA_PATH, 'utf8'));
+  assert.equal(casa, GUIDA_FINTA);
   assert.match(text, /# GUIDA CASA/);
   assert.ok(text.includes(casa), 'la guida casa deve finire nel prompt per intero');
 });

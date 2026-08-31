@@ -1,6 +1,9 @@
 node_modules/
 .env
 # dati a runtime (possono contenere info dei clienti)
+# casa.md contiene indirizzo esatto e codice della key-box della casa vera:
+# nel repo pubblico ci va solo casa.demo.md, con dati inventati.
+knowledge/casa.md
 knowledge/learned.json
 allowlist.json
 data/
