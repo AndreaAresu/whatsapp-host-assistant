@@ -110,11 +110,6 @@ are redirected to a temporary directory.
 Code, comments and the two documents above are in Italian, like the house they
 describe. This README is in English because it is the front door.
 
-## Status
-
-Working on WhatsApp and Telegram, with photo understanding, voice-note
-transcription, learned FAQs that expire, and a public web demo. Next: a VPS
-deploy to keep it running 24/7.
 
 > Baileys is an unofficial WhatsApp library. The bot only replies to people who
 > write first, never sends cold messages, and ignores groups.
