@@ -1,0 +1,20 @@
+# Configurazione del sito Netlify della DEMO (repo whatsapp-host-assistant).
+# Il sito della casa (estaated.it) è un altro sito Netlify: lo collega a questa
+# demo un rewrite proxy su /assistant — vedi DEMO.md.
+
+[build]
+  # Nessun build step: il frontend è HTML/CSS/JS statico, senza toolchain da
+  # rompersi. La parte interessante è la funzione, non il bundler.
+  command = "echo 'nessun build necessario'"
+  publish = "web"
+
+[functions]
+  node_bundler = "esbuild"
+  # La base di conoscenza va copiata DENTRO il bundle della funzione: a runtime
+  # il filesystem del repo non esiste più. Solo la versione demo: `casa.md`
+  # (dati reali) non deve mai finire su un server pubblico.
+  included_files = ["knowledge/casa.demo.md"]
+
+[dev]
+  framework = "#static"
+  publish = "web"

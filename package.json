@@ -1,5 +1,5 @@
 {
-  "name": "chat-bot-costa-rei",
+  "name": "whatsapp-host-assistant",
   "version": "0.1.0",
   "description": "Chat-bot WhatsApp per la casa vacanze a Costa Rei, con human-in-the-loop",
   "type": "module",
@@ -7,15 +7,17 @@
     "start": "node src/index.js",
     "test": "node --experimental-test-module-mocks --test --test-reporter=spec test/",
     "brain": "node src/test-cli.js",
-    "telegram": "node src/test-telegram.js"
+    "telegram": "node src/test-telegram.js",
+    "demo": "node scripts/dev-demo.mjs"
   },
   "engines": {
     "node": ">=20"
   },
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.100.1",
+    "@anthropic-ai/sdk": "^0.122.0",
     "@google/genai": "^2.15.0",
-    "@whiskeysockets/baileys": "7.0.0-rc13",
+    "@netlify/blobs": "^10.7.13",
+    "@whiskeysockets/baileys": "^7.0.0-rc14",
     "better-sqlite3": "^12.10.0",
     "dotenv": "^17.4.2",
     "grammy": "^1.43.0",

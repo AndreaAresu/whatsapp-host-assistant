@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Casa Costa Rei Assistant — demo</title>
+<meta name="description" content="Demo of a WhatsApp assistant for a holiday rental, built human-in-the-loop: the model decides whether to answer on its own or ask the host to confirm." />
+<meta name="robots" content="noindex" />
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🏖️</text></svg>" />
+<link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+
+<header class="testata">
+  <div class="testata-in">
+    <div class="marchio">
+      <span class="logo">🏖️</span>
+      <div>
+        <h1>Casa Costa Rei Assistant</h1>
+        <p>Demo · WhatsApp assistant with a <strong>human in the loop</strong></p>
+      </div>
+    </div>
+    <div class="testata-azioni">
+      <!-- Rispecchia REVIEW_EVERYTHING del bot vero. Qui il valore vive nel
+           browser (la funzione è stateless), ma pilota la stessa identica
+           condizione di engine.js. Chiamarlo col suo nome, e mostrarne il
+           valore, è metà della dimostrazione: è la valvola di sicurezza. -->
+      <label class="interruttore" title="When true, every reply goes to the host for approval — even the ones the model considers safe. Same flag the real bot reads from its .env.">
+        <input type="checkbox" id="rodaggio" checked />
+        <span class="cursore"></span>
+        <span class="etichetta-int">
+          <code>REVIEW_EVERYTHING</code>=<b id="rodaggio-val">true</b>
+        </span>
+      </label>
+      <a class="link-repo" href="https://github.com/AndreaAresu/whatsapp-host-assistant" target="_blank" rel="noopener">Code on GitHub ↗</a>
+    </div>
+  </div>
+</header>
+
+<nav class="schede" role="tablist">
+  <button class="scheda attiva" data-pannello="p-chat" role="tab">Chat</button>
+  <button class="scheda" data-pannello="p-decisione" role="tab">Decision</button>
+  <button class="scheda" data-pannello="p-inbox" role="tab">Host inbox <span class="pallino" id="conta-inbox" hidden>0</span></button>
+</nav>
+
+<main class="griglia">
+
+  <!-- ── Chat: deve sembrare WhatsApp, non un chatbot ────────── -->
+  <section class="riquadro telefono" id="p-chat">
+
+    <header class="wa-testa">
+      <div class="wa-avatar" aria-hidden="true">A</div>
+      <div class="wa-chi">
+        <strong>Alessio</strong>
+        <span id="wa-stato">online</span>
+      </div>
+      <div class="wa-icone" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M15.9 14.3H15l-.3-.3c1-1.1 1.6-2.7 1.6-4.3 0-3.7-3-6.7-6.7-6.7S3 6 3 9.7s3 6.7 6.7 6.7c1.6 0 3.2-.6 4.3-1.6l.3.3v.8l5.1 5.1 1.5-1.5-5-5.2zm-6.2 0c-2.6 0-4.6-2.1-4.6-4.6s2.1-4.6 4.6-4.6 4.6 2.1 4.6 4.6-2 4.6-4.6 4.6z"/></svg>
+        <svg viewBox="0 0 24 24" width="20" height="20"><path fill="currentColor" d="M12 7a2 2 0 1 0 0-4 2 2 0 0 0 0 4zm0 2a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm0 6a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"/></svg>
+      </div>
+    </header>
+
+    <div class="wa-sfondo" id="messaggi">
+      <div class="wa-chip">TODAY</div>
+      <!-- L'avviso sta nel "chip" centrato che WhatsApp usa già per i messaggi
+           di sistema: resta nel linguaggio visivo giusto senza far finta di
+           niente su cosa è questa pagina. -->
+      <div class="wa-chip">🤖 Demo · replies are AI-generated and the house is fictional</div>
+
+      <div class="wa-riga in">
+        <div class="wa-bolla">
+          <span class="wa-testo">Hi! 👋 I'm Alessio, the host of the house in Costa Rei.
+Message me about anything — check-in, how something works in the house, or tips about the area. I also reply in Italian and Spanish 😊</span>
+          <span class="wa-ora">9:41</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Massimo tre: uno per ramo della demo — risposta sicura, escalation
+         (per giunta in un'altra lingua), messaggio con foto. Aggiungerne
+         altri allunga la fila senza mostrare niente di nuovo. -->
+    <div class="suggerimenti" id="suggerimenti">
+      <button>What time can I check in?</button>
+      <button>Posso pagare la caparra la settimana prossima?</button>
+      <button data-media="foto">📷 Send a photo of something broken</button>
+    </div>
+
+    <!-- Anteprima della foto scelta, sopra la barra come su WhatsApp -->
+    <div class="wa-allegato" id="allegato" hidden>
+      <img id="allegato-img" alt="Preview of the photo to send" />
+      <div class="wa-allegato-info">
+        <strong>Photo ready</strong>
+        <span id="allegato-peso"></span>
+      </div>
+      <button type="button" id="allegato-via" aria-label="Remove photo">✕</button>
+    </div>
+
+    <!-- Barra di registrazione: prende il posto della scrittura, come nell'app -->
+    <div class="wa-registra" id="registra" hidden>
+      <button type="button" id="reg-annulla" aria-label="Cancel recording">
+        <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M6 19a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+      </button>
+      <span class="wa-reg-punto"></span>
+      <span class="wa-reg-tempo" id="reg-tempo">0:00</span>
+      <span class="wa-reg-hint">recording… tap ➤ to send</span>
+      <button type="button" id="reg-invia" aria-label="Send voice message">
+        <svg viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+      </button>
+    </div>
+
+    <form class="wa-scrivi" id="scrivi">
+      <span class="wa-emoji" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="24" height="24"><path fill="currentColor" d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 18a8 8 0 1 1 0-16 8 8 0 0 1 0 16zM8.5 11a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zm7 0a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3zM12 17.5c2.3 0 4.3-1.5 5-3.5H7c.7 2 2.7 3.5 5 3.5z"/></svg>
+      </span>
+
+      <input id="input" type="text" maxlength="500" autocomplete="off" placeholder="Message" />
+
+      <!-- Graffetta: foto. L'input vero resta nascosto, come in ogni app. -->
+      <button type="button" class="wa-graffetta" id="graffetta" aria-label="Attach a photo">
+        <svg viewBox="0 0 24 24" width="23" height="23"><path fill="currentColor" d="M16.5 6v11.5a4 4 0 0 1-8 0V5a2.5 2.5 0 0 1 5 0v10.5a1 1 0 0 1-2 0V6H10v9.5a2.5 2.5 0 0 0 5 0V5a4 4 0 0 0-8 0v12.5a5.5 5.5 0 0 0 11 0V6h-1.5z"/></svg>
+      </button>
+      <input type="file" id="file" accept="image/jpeg,image/png,image/webp,image/gif" hidden />
+
+      <!-- Come su WhatsApp: microfono a campo vuoto, aeroplanino se c'è testo -->
+      <button type="submit" id="invia" aria-label="Send">
+        <svg id="icona-invia" viewBox="0 0 24 24" width="22" height="22" hidden><path fill="currentColor" d="M2.01 21 23 12 2.01 3 2 10l15 2-15 2z"/></svg>
+        <svg id="icona-micro" viewBox="0 0 24 24" width="22" height="22"><path fill="currentColor" d="M12 14a3 3 0 0 0 3-3V5a3 3 0 0 0-6 0v6a3 3 0 0 0 3 3zm5-3a5 5 0 0 1-10 0H5a7 7 0 0 0 6 6.9V21h2v-3.1A7 7 0 0 0 19 11h-2z"/></svg>
+      </button>
+    </form>
+  </section>
+
+  <!-- ── Pannello decisione ───────────────────────────────────── -->
+  <section class="riquadro" id="p-decisione">
+    <div class="riquadro-testa">
+      <h2>Model decision</h2>
+      <span class="sotto">what happened behind the last reply</span>
+    </div>
+
+    <div class="corpo-scroll">
+      <div id="decisione-vuota" class="vuoto">
+        <p>Send a message to see how the bot classifies it, and why it decides
+        to answer on its own or to ask the host first.</p>
+      </div>
+
+      <div id="decisione" hidden>
+        <div class="distintivi">
+          <span class="dist" id="d-categoria"></span>
+          <span class="dist" id="d-azione"></span>
+          <span class="dist neutro" id="d-lingua"></span>
+        </div>
+
+        <h3>Why</h3>
+        <p class="motivo" id="d-motivo"></p>
+
+        <div id="d-fonti-blocco" hidden>
+          <h3>Sources found on the web</h3>
+          <ul class="fonti" id="d-fonti"></ul>
+        </div>
+
+        <h3>Cost of this reply</h3>
+        <dl class="metriche">
+          <div><dt>Latency</dt><dd id="m-ms">–</dd></div>
+          <div><dt>API calls</dt><dd id="m-steps">–</dd></div>
+          <div><dt>Input tokens</dt><dd id="m-in">–</dd></div>
+          <div><dt>Output tokens</dt><dd id="m-out">–</dd></div>
+          <div><dt>Read from cache</dt><dd id="m-cache">–</dd></div>
+          <div><dt>Estimated cost</dt><dd id="m-costo">–</dd></div>
+        </dl>
+      </div>
+
+      <h3>Session</h3>
+      <dl class="metriche sessione">
+        <div><dt>Messages</dt><dd id="s-msg">0</dd></div>
+        <div><dt>Total cost</dt><dd id="s-costo">$0.0000</dd></div>
+        <div><dt>Saved by caching</dt><dd id="s-cache">$0.0000</dd></div>
+        <div><dt>Messages left</dt><dd id="s-rimasti">–</dd></div>
+      </dl>
+
+      <details class="spiegone">
+        <summary>How it works</summary>
+        <p>A single agentic call to <strong>Claude Haiku 4.5</strong> with two
+        tools: native <code>web_search</code> (geolocated on Costa Rei) and
+        <code>submit_response</code>, through which the model hands back a
+        structured decision instead of free text.</p>
+        <p>The house guide sits in its own system-prompt block with
+        <code>cache_control</code>: from the second question on it costs a tenth.</p>
+        <p><strong>If the model never calls <code>submit_response</code>, the
+        message is escalated.</strong> An uncertain case costs the host one
+        message; a wrong one costs a guest's trust.</p>
+        <p>The same pipeline runs on WhatsApp (Baileys) with approval over
+        Telegram, plus photo understanding and voice-note transcription.</p>
+      </details>
+    </div>
+  </section>
+
+  <!-- ── Inbox host ───────────────────────────────────────────── -->
+  <section class="riquadro" id="p-inbox">
+    <div class="riquadro-testa">
+      <h2>Host inbox</h2>
+      <span class="sotto">drafts awaiting approval — in the real bot these arrive on Telegram</span>
+    </div>
+
+    <div class="corpo-scroll" id="inbox">
+      <div class="vuoto" id="inbox-vuota">
+        <p>This is where replies land when the bot is <strong>not</strong>
+        confident enough to send them itself: prices, dates, breakages, area
+        information it hasn't verified.</p>
+        <p>With <code>REVIEW_EVERYTHING=true</code> everything lands here, even
+        the safe replies: it's the safety valve for the first days in production.</p>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<script src="./app.js"></script>
+</body>
+</html>

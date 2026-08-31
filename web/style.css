@@ -1,0 +1,464 @@
+/* Demo assistente Casa Costa Rei — foglio di stile unico, nessuna dipendenza. */
+
+:root {
+  --mare:        #0b6a72;
+  --mare-chiaro: #0f8b95;
+  --sabbia:      #f6f1e7;
+  --inchiostro:  #16232b;
+  --grigio:      #5d6b73;
+  --bordo:       #dfe4e6;
+  --sfondo:      #f2f5f6;
+  --carta:       #ffffff;
+  --ok:          #1a7f4b;
+  --ok-sf:       #e6f4ec;
+  --attesa:      #9a6206;
+  --attesa-sf:   #fdf1dc;
+  --raggio:      12px;
+  --ombra:       0 1px 2px rgba(22,35,43,.06), 0 8px 24px rgba(22,35,43,.05);
+}
+
+* { box-sizing: border-box; }
+
+/* `hidden` deve vincere sempre: qui sotto ci sono regole di classe con
+   `display: flex/grid` (la barra di registrazione, l'anteprima della foto,
+   la barra di scrittura) e la loro specificità batte il display:none del
+   browser, lasciando in pagina roba che dovrebbe essere invisibile. */
+[hidden] { display: none !important; }
+
+body {
+  margin: 0;
+  font: 15px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  color: var(--inchiostro);
+  background: var(--sfondo);
+}
+
+h1, h2, h3 { margin: 0; font-weight: 650; letter-spacing: -.01em; }
+
+/* ── Testata ─────────────────────────────────────────────────── */
+.testata {
+  background: linear-gradient(135deg, var(--mare), var(--mare-chiaro));
+  color: #fff;
+}
+.testata-in {
+  max-width: 1320px; margin: 0 auto; padding: 14px 20px;
+  display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap;
+}
+.marchio { display: flex; align-items: center; gap: 12px; }
+.logo { font-size: 30px; line-height: 1; }
+.testata h1 { font-size: 18px; }
+.testata p { margin: 1px 0 0; font-size: 13px; opacity: .88; }
+.testata-azioni { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+
+.link-repo {
+  color: #fff; text-decoration: none; font-size: 13px; font-weight: 550;
+  border: 1px solid rgba(255,255,255,.45); padding: 6px 12px; border-radius: 999px;
+  transition: background .15s;
+}
+.link-repo:hover { background: rgba(255,255,255,.16); }
+
+/* Interruttore REVIEW_EVERYTHING (la vecchia "modalità rodaggio") */
+.interruttore { display: inline-flex; align-items: center; gap: 9px; cursor: pointer; font-size: 13px; }
+.interruttore input { position: absolute; opacity: 0; width: 0; height: 0; }
+.cursore {
+  width: 40px; height: 22px; border-radius: 999px; background: rgba(255,255,255,.3);
+  position: relative; transition: background .18s; flex: none;
+}
+.cursore::after {
+  content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px;
+  border-radius: 50%; background: #fff; transition: transform .18s;
+}
+.interruttore input:checked + .cursore { background: rgba(255,255,255,.75); }
+.interruttore input:checked + .cursore::after { transform: translateX(18px); }
+.interruttore input:focus-visible + .cursore { outline: 2px solid #fff; outline-offset: 2px; }
+/* L'etichetta è la variabile d'ambiente vera: si legge come codice. */
+.etichetta-int {
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+.etichetta-int code { font: inherit; opacity: .9; }
+.etichetta-int b { font-weight: 700; }
+
+/* ── Avviso ──────────────────────────────────────────────────── */
+.avviso {
+  background: var(--attesa-sf); color: #6b4a08; border-bottom: 1px solid #f0dcb4;
+  font-size: 13px; text-align: center; padding: 8px 20px;
+}
+
+/* ── Schede (solo mobile) ────────────────────────────────────── */
+.schede { display: none; }
+
+/* ── Griglia ─────────────────────────────────────────────────── */
+.griglia {
+  max-width: 1320px; margin: 0 auto; padding: 20px;
+  display: grid; gap: 18px; align-items: start;
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, .95fr) minmax(0, .95fr);
+}
+
+.riquadro {
+  background: var(--carta); border: 1px solid var(--bordo);
+  border-radius: var(--raggio); box-shadow: var(--ombra);
+  display: flex; flex-direction: column;
+  /* `dvh` segue la viewport VISIBILE: su iOS Safari `100vh` è quella grande, a
+     barre nascoste, quindi il fondo del riquadro — cioè la barra di scrittura
+     col tasto di invio — finisce sotto la toolbar del browser. `vh` resta come
+     ripiego per i browser che non conoscono `dvh`. */
+  height: calc(100vh - 190px);
+  height: calc(100dvh - 190px);
+  min-height: 480px;
+}
+.riquadro-testa { padding: 14px 16px; border-bottom: 1px solid var(--bordo); }
+.riquadro-testa h2 { font-size: 15px; }
+.sotto { display: block; font-size: 12.5px; color: var(--grigio); margin-top: 2px; }
+
+.corpo-scroll { overflow-y: auto; padding: 16px; flex: 1; }
+
+/* ── Chat in stile WhatsApp ──────────────────────────────────
+   Non deve sembrare "un chatbot in una pagina": deve sembrare la chat con
+   Alessio. Colori e proporzioni sono quelli di WhatsApp Web (tema chiaro);
+   marchio e logo non sono usati. */
+
+:root {
+  --wa-verde:     #00a884;
+  --wa-testa:     #f0f2f5;
+  --wa-sfondo:    #efeae2;
+  --wa-uscita:    #d9fdd3;
+  --wa-entrata:   #ffffff;
+  --wa-testo:     #111b21;
+  --wa-meta:      #667781;
+  --wa-spunta:    #53bdeb;
+  --wa-ombra:     0 1px .5px rgba(11,20,26,.13);
+}
+
+.telefono { overflow: hidden; }
+
+/* Intestazione */
+.wa-testa {
+  display: flex; align-items: center; gap: 12px;
+  padding: 9px 14px; background: var(--wa-testa);
+  border-bottom: 1px solid #d5dbdd; flex: none;
+}
+.wa-avatar {
+  width: 38px; height: 38px; border-radius: 50%; flex: none;
+  background: linear-gradient(135deg, #26a69a, #00796b);
+  color: #fff; font-weight: 600; font-size: 17px;
+  display: grid; place-items: center;
+}
+.wa-chi { flex: 1; min-width: 0; line-height: 1.25; }
+.wa-chi strong { display: block; font-size: 15.5px; font-weight: 550; color: var(--wa-testo); }
+.wa-chi span { font-size: 12.5px; color: var(--wa-meta); }
+.wa-chi span.scrive { color: var(--wa-verde); }
+.wa-icone { display: flex; gap: 18px; color: #54656f; flex: none; }
+
+/* Sfondo con il motivo a doodle */
+.wa-sfondo {
+  flex: 1; overflow-y: auto; padding: 14px 7% 8px;
+  display: flex; flex-direction: column; gap: 3px;
+  background-color: var(--wa-sfondo);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='260' height='260' viewBox='0 0 260 260'%3E%3Cg fill='none' stroke='%23000' stroke-opacity='.045' stroke-width='2'%3E%3Ccircle cx='38' cy='34' r='11'/%3E%3Cpath d='M96 22h22v20H96zM150 40l12-18 12 18zM206 24c6 0 10 4 10 9s-4 9-10 9-10-4-10-9M20 92h20M30 82v20M78 100c8-10 20-10 26 0M140 88l16 16M156 88l-16 16M198 84h26v22h-26zM32 150l14-12 14 12-14 12zM92 158h28M106 144v28M164 148c10 0 16 6 16 14M212 142v26M202 152h20M44 210c8-8 20-8 28 0M118 200h24v24h-24zM178 206l10 10 18-20M14 246h22M24 236v20'/%3E%3C/g%3E%3C/svg%3E");
+}
+
+/* Chip centrati: date, avvisi di sistema, stato dell'attesa */
+.wa-chip {
+  align-self: center; max-width: 88%; text-align: center;
+  background: #ffffffcc; color: #54656f; font-size: 12.2px;
+  padding: 5px 12px; border-radius: 7px; box-shadow: var(--wa-ombra);
+  margin: 6px 0; backdrop-filter: blur(2px);
+}
+.wa-chip.attesa { background: #fff6d8e6; color: #7a5c00; }
+
+/* Bolle */
+.wa-riga { display: flex; max-width: 100%; }
+.wa-riga.in  { justify-content: flex-start; }
+.wa-riga.out { justify-content: flex-end; }
+.wa-riga + .wa-riga { margin-top: 2px; }
+.wa-riga.in + .wa-riga.out, .wa-riga.out + .wa-riga.in { margin-top: 10px; }
+
+.wa-bolla {
+  position: relative; max-width: 82%;
+  padding: 6px 9px 8px 9px; border-radius: 7.5px;
+  box-shadow: var(--wa-ombra); font-size: 14.4px; line-height: 1.35;
+  color: var(--wa-testo); overflow-wrap: anywhere;
+}
+.wa-riga.in  .wa-bolla { background: var(--wa-entrata); border-top-left-radius: 0; }
+.wa-riga.out .wa-bolla { background: var(--wa-uscita); border-top-right-radius: 0; }
+
+/* Codine */
+.wa-riga.in .wa-bolla::before, .wa-riga.out .wa-bolla::before {
+  content: ""; position: absolute; top: 0; width: 8px; height: 13px;
+}
+.wa-riga.in .wa-bolla::before {
+  left: -8px;
+  background: radial-gradient(circle at 0 100%, transparent 8px, var(--wa-entrata) 8px);
+}
+.wa-riga.out .wa-bolla::before {
+  right: -8px;
+  background: radial-gradient(circle at 100% 100%, transparent 8px, var(--wa-uscita) 8px);
+}
+
+.wa-testo { white-space: pre-wrap; }
+/* Spazio in coda al testo perché l'orario non ci finisca sopra. */
+.wa-testo::after { content: ""; display: inline-block; width: 58px; }
+
+.wa-ora {
+  position: absolute; right: 8px; bottom: 4px;
+  font-size: 11px; color: var(--wa-meta);
+  display: inline-flex; align-items: center; gap: 2px; white-space: nowrap;
+}
+.wa-ora .spunte { color: var(--wa-spunta); display: inline-flex; }
+
+/* "sta scrivendo": i tre puntini dentro una bolla in entrata */
+.wa-puntini { display: inline-flex; gap: 4px; padding: 3px 2px; }
+.wa-puntini i {
+  width: 7px; height: 7px; border-radius: 50%; background: #9aa6ab;
+  animation: wa-salta 1.2s infinite;
+}
+.wa-puntini i:nth-child(2) { animation-delay: .2s; }
+.wa-puntini i:nth-child(3) { animation-delay: .4s; }
+@keyframes wa-salta { 0%,60%,100% { opacity:.35; transform: translateY(0);} 30% { opacity:1; transform: translateY(-4px);} }
+
+/* Suggerimenti: risposte rapide sopra la barra di scrittura */
+.suggerimenti {
+  display: flex; flex-wrap: wrap; gap: 6px; flex: none;
+  padding: 9px 12px; background: var(--wa-sfondo);
+  border-top: 1px solid #0000000d;
+}
+.suggerimenti button {
+  font: inherit; font-size: 12.5px; color: var(--wa-verde); background: #fff;
+  border: 1px solid #c9d2d4; border-radius: 999px; padding: 5px 11px; cursor: pointer;
+  box-shadow: var(--wa-ombra); transition: background .15s;
+}
+.suggerimenti button:hover { background: #f3fbf9; }
+
+/* Barra di scrittura */
+.wa-scrivi {
+  display: flex; align-items: center; gap: 8px; flex: none;
+  padding: 8px 12px; background: var(--wa-testa);
+}
+.wa-emoji { color: #54656f; display: flex; flex: none; }
+.wa-scrivi input {
+  flex: 1; min-width: 0; font: inherit; font-size: 14.5px;
+  padding: 10px 14px; border: none; border-radius: 8px;
+  background: #fff; color: var(--wa-testo);
+}
+.wa-scrivi input:focus { outline: none; }
+.wa-scrivi button {
+  flex: none; width: 40px; height: 40px; border: none; border-radius: 50%;
+  background: var(--wa-verde); color: #fff; cursor: pointer;
+  display: grid; place-items: center; transition: background .15s;
+}
+.wa-scrivi button:hover:not(:disabled) { background: #06cf9c; }
+.wa-scrivi button:disabled { opacity: .5; cursor: not-allowed; }
+
+
+/* ── Allegati: foto e vocali ─────────────────────────────────── */
+
+/* Anteprima della foto scelta, sopra la barra di scrittura */
+.wa-allegato {
+  display: flex; align-items: center; gap: 11px; flex: none;
+  padding: 9px 12px; background: var(--wa-testa); border-top: 1px solid #d5dbdd;
+}
+.wa-allegato img {
+  width: 46px; height: 46px; object-fit: cover; border-radius: 6px; flex: none;
+  box-shadow: var(--wa-ombra);
+}
+.wa-allegato-info { flex: 1; min-width: 0; line-height: 1.3; }
+.wa-allegato-info strong { display: block; font-size: 13.5px; color: var(--wa-testo); font-weight: 550; }
+.wa-allegato-info span { font-size: 12px; color: var(--wa-meta); }
+.wa-allegato button {
+  border: none; background: none; cursor: pointer; color: var(--wa-meta);
+  font-size: 17px; padding: 6px; line-height: 1;
+}
+
+/* Foto dentro la bolla */
+.wa-bolla img.wa-foto {
+  display: block; max-width: 100%; width: 232px; border-radius: 5px;
+  margin-bottom: 4px; background: #0001;
+}
+.wa-bolla img.wa-foto + .wa-testo { display: block; margin-top: 2px; }
+
+/* Vocale: riproduttore essenziale, come nell'app */
+.wa-vocale { display: flex; align-items: center; gap: 9px; min-width: 190px; padding: 2px 0; }
+.wa-vocale button {
+  width: 32px; height: 32px; border-radius: 50%; border: none; flex: none;
+  background: none; color: #54656f; cursor: pointer; display: grid; place-items: center;
+}
+.wa-onda { flex: 1; display: flex; align-items: center; gap: 2px; height: 22px; }
+.wa-onda i {
+  flex: 1; background: #a8b3b8; border-radius: 1px; min-width: 2px;
+  transition: background .12s;
+  /* le altezze arrivano da app.js: una forma d'onda finta ma non piatta */
+}
+/* Le barre già ascoltate si colorano mentre il vocale scorre, come nell'app. */
+.wa-onda i.suonata { background: var(--wa-verde); }
+.wa-vocale button:hover:not(:disabled) { color: var(--wa-verde); }
+.wa-vocale button:disabled { opacity: .45; cursor: default; }
+.wa-vocale .durata { font-size: 11px; color: var(--wa-meta); flex: none; }
+
+/* Trascrizione sotto il vocale: WhatsApp la mostra, e qui serve a far vedere
+   che il modello legge un TESTO, non l'audio. */
+.wa-trascrizione {
+  margin-top: 6px; padding-top: 6px; border-top: 1px solid #0000000f;
+  font-size: 13px; color: #3b4a54; font-style: italic;
+}
+.wa-trascrizione::before { content: "🎤 "; font-style: normal; }
+
+/* Barra di registrazione */
+.wa-registra {
+  display: flex; align-items: center; gap: 11px; flex: none;
+  padding: 10px 12px; background: var(--wa-testa);
+}
+.wa-registra button {
+  border: none; background: none; cursor: pointer; color: #54656f;
+  display: grid; place-items: center; padding: 4px; flex: none;
+}
+.wa-registra #reg-invia { color: var(--wa-verde); }
+.wa-reg-punto {
+  width: 10px; height: 10px; border-radius: 50%; background: #f15c6d; flex: none;
+  animation: wa-pulsa 1.1s infinite;
+}
+@keyframes wa-pulsa { 0%,100% { opacity: 1; } 50% { opacity: .25; } }
+.wa-reg-tempo {
+  font-variant-numeric: tabular-nums; font-size: 14px; color: var(--wa-testo); flex: none;
+}
+.wa-reg-hint { flex: 1; font-size: 12.5px; color: var(--wa-meta); }
+
+/* Graffetta nella barra di scrittura */
+.wa-graffetta {
+  border: none; background: none; cursor: pointer; color: #54656f;
+  display: grid; place-items: center; padding: 4px; flex: none;
+}
+.wa-graffetta:hover { color: var(--wa-verde); }
+
+/* Il pulsante di invio diventa rosso mentre registra */
+.wa-scrivi button#invia.registrando { background: #f15c6d; }
+
+@media (max-width: 460px) {
+  .wa-reg-hint { display: none; }
+}
+
+/* ── Pannello decisione ──────────────────────────────────────── */
+.vuoto { color: var(--grigio); font-size: 13.5px; }
+.vuoto p { margin: 0 0 10px; }
+
+.distintivi { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 14px; }
+.dist {
+  font-size: 12px; font-weight: 650; padding: 4px 10px; border-radius: 999px;
+  background: #eef3f4; color: var(--inchiostro); font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.dist.invia  { background: var(--ok-sf); color: var(--ok); }
+.dist.escala { background: var(--attesa-sf); color: var(--attesa); }
+.dist.neutro { background: #eef3f4; color: var(--grigio); }
+
+#p-decisione h3 {
+  font-size: 11px; text-transform: uppercase; letter-spacing: .07em;
+  color: var(--grigio); margin: 18px 0 7px;
+}
+#p-decisione h3:first-of-type { margin-top: 0; }
+.motivo { margin: 0; font-size: 14px; }
+
+.fonti { margin: 0; padding-left: 17px; font-size: 13px; }
+.fonti li { margin-bottom: 4px; }
+.fonti a { color: var(--mare); overflow-wrap: anywhere; }
+
+.metriche { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 0; }
+.metriche > div { background: #f7f9fa; border: 1px solid var(--bordo); border-radius: 8px; padding: 8px 10px; }
+.metriche dt { font-size: 11px; color: var(--grigio); text-transform: uppercase; letter-spacing: .05em; }
+.metriche dd {
+  margin: 2px 0 0; font-size: 15px; font-weight: 650;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.metriche.sessione > div { background: #f0f8f9; border-color: #cfe4e6; }
+
+.spiegone { margin-top: 20px; border-top: 1px solid var(--bordo); padding-top: 14px; font-size: 13.5px; }
+.spiegone summary { cursor: pointer; font-weight: 600; color: var(--mare); }
+.spiegone p { color: var(--grigio); }
+.spiegone code {
+  font-size: 12.5px; background: #eef3f4; padding: 1px 5px; border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+/* ── Inbox host ──────────────────────────────────────────────── */
+.scheda-bozza {
+  border: 1px solid var(--bordo); border-left: 3px solid var(--attesa);
+  border-radius: 10px; padding: 13px; margin-bottom: 12px; background: #fffdf9;
+}
+.scheda-bozza .domanda { font-size: 13px; color: var(--grigio); margin: 0 0 8px; }
+.scheda-bozza .bozza {
+  background: #fff; border: 1px solid var(--bordo); border-radius: 8px;
+  padding: 10px; font-size: 14px; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0 0 10px;
+}
+.scheda-bozza .bozza:empty::before {
+  content: "(il modello non ha proposto una bozza: scrivila tu)";
+  color: var(--grigio); font-style: italic;
+}
+.scheda-bozza textarea {
+  width: 100%; font: inherit; font-size: 14px; padding: 10px; border-radius: 8px;
+  border: 1px solid var(--mare); margin-bottom: 10px; resize: vertical; min-height: 92px;
+}
+.bottoni { display: flex; gap: 7px; flex-wrap: wrap; }
+.azione { padding: 7px 14px; font-size: 13px; }
+.azione.sec   { background: #eef3f4; color: var(--inchiostro); }
+.azione.terzo { background: transparent; color: var(--grigio); border: 1px solid var(--bordo); }
+.azione:hover { filter: brightness(1.06); }
+
+.pallino {
+  display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 5px;
+  background: var(--attesa); color: #fff; border-radius: 999px;
+  font-size: 11px; font-weight: 700; text-align: center; line-height: 18px;
+}
+
+/* ── Responsive ──────────────────────────────────────────────── */
+@media (max-width: 1040px) {
+  .schede {
+    display: flex; gap: 4px; padding: 10px 16px 0;
+    max-width: 1320px; margin: 0 auto; background: var(--sfondo);
+  }
+  .scheda {
+    flex: 1; font: inherit; font-size: 13px; font-weight: 600; cursor: pointer;
+    padding: 9px 4px; border: 1px solid var(--bordo); border-bottom: none;
+    border-radius: 9px 9px 0 0; background: #e8edee; color: var(--grigio);
+    white-space: nowrap; /* «Host inbox» su due righe alzava la fascia di 20px */
+  }
+  .scheda.attiva { background: var(--carta); color: var(--inchiostro); }
+  /* Su una colonna sola il riquadro non si calcola per sottrazione: prende lo
+     spazio che avanza. Con una costante (era `100vh - 250px`) bastava che la
+     testata andasse a capo di una riga in più — o che iOS mostrasse la sua
+     toolbar — perché la barra di scrittura, col tasto di invio, finisse sotto
+     il bordo dello schermo. */
+  /* Altezza DEFINITA, non `min-height`: con un minimo il contenitore si
+     dimensiona sul contenuto e i figli non si stringono mai — il riquadro
+     restava alto quanto i suoi messaggi e sfondava lo schermo. Così invece
+     lo spazio che avanza è quello vero, e a scorrere è il corpo del pannello. */
+  body { height: 100dvh; display: flex; flex-direction: column; }
+  .griglia {
+    grid-template-columns: minmax(0, 1fr); padding-top: 0;
+    flex: 1; min-height: 0; align-items: stretch;
+  }
+  .riquadro {
+    display: none; height: auto; min-height: 0;
+    border-radius: 0 0 var(--raggio) var(--raggio);
+  }
+  .riquadro.attivo { display: flex; }
+
+  /* Su uno schermo alto 659px la testata da sola ne prendeva 187 e i
+     suggerimenti 125: alla chat ne restavano 138. Qui si recuperano ~150px. */
+  .testata-in { padding: 10px 16px; gap: 10px; }
+  .logo { font-size: 24px; }
+  .testata h1 { font-size: 16px; }
+  .testata p { font-size: 12px; }
+  .testata-azioni { width: 100%; gap: 12px; justify-content: space-between; }
+
+  /* Una riga sola che scorre di lato, come le risposte rapide di un'app di
+     messaggi, invece di tre righe di chip impilate. */
+  .suggerimenti {
+    flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+  .suggerimenti::-webkit-scrollbar { display: none; }
+  .suggerimenti button { flex: none; white-space: nowrap; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: .001ms !important; transition-duration: .001ms !important; }
+}
