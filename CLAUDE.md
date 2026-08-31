@@ -138,6 +138,22 @@ significherebbe duplicare le regole di casa su due provider.
   `normalizeMessages()` in `brain.js` fonde i turni consecutivi dello stesso
   ruolo, perché i clienti mandano più messaggi di fila e l'API richiede
   l'alternanza.
+- **Il prefisso del prompt deve restare sopra i 4096 token.** È la soglia
+  minima di caching di **Haiku 4.5** (dipende dal modello: 512 su Opus 5, 1024
+  su Sonnet 5, 4096 su Haiku 4.5 e Opus 4.6). Sotto, `cache_control` viene
+  ignorato **in silenzio**: nessun errore, solo `cache_creation_input_tokens: 0`
+  e il costo pieno a ogni messaggio. Con `casa.demo.md` il prefisso sta a ~5200
+  token; accorciando la guida si scende sotto e il caching sparisce senza che
+  niente lo segnali. Si verifica con `usage.cache_read_input_tokens` su due
+  chiamate identiche di fila.
+- **Nel prompt non si scrivono trattini lunghi**, né in `brain.js` né in
+  `casa.md`/`casa.demo.md`. Il modello imita la punteggiatura di ciò che legge,
+  e la guida è la parte più lunga del suo contesto: con 15 trattini lunghi nel
+  prompt li usava nelle risposte nonostante un divieto esplicito. La regola sta
+  in positivo («virgola, due punti o parentesi») più quattro esempi in
+  `<esempi>`, come raccomanda la documentazione di Anthropic: *tell Claude what
+  to do instead of what not to do* e *match your prompt style to the desired
+  output*. Il divieto da solo non funzionava.
 - **Le FAQ di zona scadono** dopo 90 giorni (`EXPIRY_DAYS` in `learned.js`):
   `knowledge.js` le marca «SCADUTA» nel prompt e il system prompt istruisce il
   modello a non fidarsene.
