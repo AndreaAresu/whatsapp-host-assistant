@@ -1,153 +1,120 @@
-# Chat-bot WhatsApp — Casa Costa Rei
+# WhatsApp host assistant
 
-Assistente che risponde ai clienti della casa vacanze, con **human-in-the-loop**:
-il bot risponde da solo alle domande sicure, e per i casi incerti o delicati ti
-manda una bozza da approvare.
+A WhatsApp assistant for a holiday rental in Sardinia that **knows when to ask a
+human**. It answers the safe questions on its own (check-in time, how the air
+conditioning works, where to park) and turns everything else into a draft the
+host approves from Telegram: prices, dates, breakages, anything about the area
+it has not verified.
 
-**Stato attuale:** funzionante su WhatsApp + Telegram, più una **demo web
-pubblica** che mostra l'architettura human-in-the-loop nel browser
-(→ [DEMO.md](DEMO.md), `npm run demo`).
+**[Live demo →](https://regal-caramel-543676.netlify.app/)** The demo shows the
+part that is normally invisible: what the model decided, why, what it cost, and
+the host inbox where a draft waits for approval.
 
-## Come provarlo
-1. Installa le dipendenze:
-   ```
-   npm install
-   ```
-2. Copia `.env.example` in `.env` e inserisci la tua `ANTHROPIC_API_KEY`.
-3. Avvia la prova interattiva:
-   ```
-   npm run brain
-   ```
-4. Scrivi messaggi come farebbe un cliente (in qualsiasi lingua) e osserva la
-   decisione del bot: categoria, se invia o escala, e la bozza di risposta.
+![The demo: a WhatsApp-style chat, the model's decision panel, and the host inbox](web/anteprima.png)
 
-## Test
-```
-npm test
-```
-Girano in locale in meno di un secondo: non serve rete, non chiamano né Claude
-né Gemini né Telegram (le API sono finte) e non toccano i tuoi file veri
-(`allowlist.json`, `knowledge/learned.json`, `data/bot.db`), che vengono
-dirottati in una cartella temporanea. Falli girare dopo ogni modifica al codice.
+> The demo runs on a fictional house guide. The real one holds the address and
+> key-box code of an actual house, so it lives outside this repository.
 
-## Demo web
-Una pagina che fa vedere *come decide* il bot, non solo cosa risponde. La chat è
-indistinguibile da WhatsApp — si può **allegare una foto e registrare un vocale**
-— e accanto ci sono il pannello con categoria/azione/motivo/fonti/token/costo e
-un'inbox host dove approvare o modificare le bozze.
+## Why it is built this way
 
-```
-npm run demo    # → http://localhost:8888
+A guest asking "what time is check-out?" wants an answer now. A guest asking
+"can I pay the deposit next week?" must not get an answer invented by a model.
+The whole design follows from that split.
+
+**One decision, one line.** Claude classifies the message, picks an action and
+writes the draft in a single agentic call, handing it back through a tool rather
+than as free text. Whether that draft goes out is one condition, the same one in
+every channel:
+
+```js
+action === 'invia' && !config.reviewEverything
 ```
 
-Usa una base di conoscenza **fittizia** (`knowledge/casa.demo.md`): la guida vera
-contiene il codice della key-box di una casa reale. Deploy e collegamento a
-`estaated.it/assistant`: vedi [DEMO.md](DEMO.md).
+**`REVIEW_EVERYTHING` is the safety valve.** With it on, which is the default,
+every reply goes to the host first, even the ones the model considers safe. It
+is what you run for the first days in production. The demo puts it in the header
+as a switch, so you can watch the same message take both paths.
 
-## Struttura
-- `knowledge/casa.md` — base di conoscenza, fonte delle risposte. Non è nel repo
-  (contiene dati veri): parti da `casa.demo.md` e **riempi i «DA COMPLETARE».**
-- `knowledge/casa.demo.md` — la stessa guida con dati inventati, per la demo pubblica.
-- `src/brain.js` — chiamata a Claude: classifica, decide invia/escala, scrive la bozza.
-- `src/knowledge.js` — carica la base di conoscenza + le FAQ imparate.
-- `src/config.js` — configurazione (chiave API, modello, modalità rodaggio).
-- `src/test-cli.js` — prova interattiva in locale.
+**When in doubt, escalate.** If the model never calls the tool, or returns an
+empty draft, the message is escalated instead of guessed at. An uncertain case
+costs the host one notification; a wrong one costs a guest's trust.
 
-## Provare il canale Telegram (con cliente simulato)
-1. Crea un bot con [@BotFather](https://t.me/BotFather) su Telegram e copia il token.
-2. Mettilo in `.env` come `TELEGRAM_BOT_TOKEN`.
-3. Avvia l'harness:
-   ```
-   npm run telegram
-   ```
-4. Su Telegram scrivi `/start` al tuo bot: ti dirà il tuo **chat id**. Mettilo in
-   `.env` come `TELEGRAM_CHAT_ID` e riavvia.
-5. Nel terminale scrivi un messaggio "da cliente": le bozze che richiedono
-   conferma arrivano su Telegram con i pulsanti **Invia / Modifica / Ignora**.
-   L'invio al cliente è per ora simulato (stampato a video); WhatsApp arriva dopo.
+**Identity documents are never read.** Guests must send ID photos for the
+mandatory Italian police registration. If a photo is a document, the bot stops:
+it does not transcribe, describe or summarise anything in it, and just reminds
+the host to register it by hand.
 
-## Avvio completo (WhatsApp + Telegram)
-Collega il bot al tuo numero WhatsApp come dispositivo aggiuntivo.
-1. Nel `.env` servono: `ANTHROPIC_API_KEY`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`.
-2. Avvia:
-   ```
-   npm start
-   ```
-3. Al primo avvio compare un **QR code** nel terminale: su WhatsApp vai in
-   *Impostazioni → Dispositivi collegati → Collega un dispositivo* e scansionalo.
-   La sessione resta salvata in `auth_info/` (non serve riscansionare ogni volta).
-4. Da ora i messaggi dei clienti vengono gestiti: le risposte sicure partono da
-   sole (se il rodaggio è OFF), il resto arriva come bozza su Telegram. In
-   modalità rodaggio (default) **ogni** risposta passa da te.
+**One brain, two providers.** Claude decides everything. Gemini is a narrow
+audio-to-text adapter, used only because Claude's API has no audio content
+block. Photos go straight to Claude in the same call that classifies and
+decides, so the house rules apply identically to text and images.
 
-> ⚠️ Baileys non è ufficiale: usi il tuo numero a tuo rischio. Il bot risponde
-> solo a chi ti scrive per primo, non manda messaggi a freddo e ignora i gruppi.
+## Architecture
 
-## Lista numeri autorizzati (allowlist)
-Per non spendere in chiamate a Claude per chi non c'entra con la casa, il bot
-risponde **solo** ai numeri in lista (`allowlist.json`).
-- **Gestione dal telefono** (comandi al bot Telegram): `/lista`,
-  `/aggiungi <numero>`, `/rimuovi <numero>`. Usa il prefisso internazionale
-  senza `+` (es. `39333xxxxxxx`).
-- **Numero sconosciuto:** quando scrive un numero non in lista, ricevi su
-  Telegram una notifica con `[➕ Aggiungi e rispondi]` / `[🚫 Ignora]` —
-  nessuna chiamata a Claude finché non lo aggiungi.
-- Il filtro vale sia per i messaggi in arrivo sia per l'apprendimento dalle
-  risposte manuali (così una risposta a un amico non finisce nelle FAQ).
-- Lista vuota = il bot non risponde automaticamente a nessuno, ti avvisa e basta.
+```
+                       ┌─ text ───────────────────────┐
+WhatsApp (Baileys) ────├─ photo ──→ (bytes attached)  ├→ allowlist → memory → Claude
+                       └─ voice ──→ Gemini transcript ┘                        │
+                                                                               ▼
+                          send to guest  ←──  or  ──→  draft to host (Telegram)
+                                                              │ approved
+                                                     learned FAQs → knowledge base
+```
 
-## Foto e messaggi vocali
-Il bot capisce anche i media, non solo il testo.
+`engine.js` takes `sendToClient` and `requestApproval` as callbacks, which is
+why the same pipeline drives three channels: WhatsApp, a local REPL, and the web
+demo, with no logic duplicated.
 
-**Foto** — le guarda Claude, nella stessa chiamata che già classifica e decide:
-una foto vale quanto un messaggio scritto (guasto in casa, elettrodomestico,
-dettaglio della casa). Se la foto ha una **didascalia**, quella diventa il
-messaggio del cliente ("si è rotto questo") e viene letta insieme all'immagine. Nello storico resta solo un segnaposto: i byte
-dell'immagine non entrano mai nel database.
+## A few things that were not obvious
 
-> 🪪 **Documenti d'identità:** se la foto è una carta d'identità, un passaporto
-> o simili, il bot si ferma: **non ne legge né salva alcun dato** (niente nomi,
-> numeri, date). Ti manda solo un promemoria per la registrazione su
-> alloggiatiweb, che resta un lavoro tuo, a mano.
+- **Prompt caching has a minimum.** On Haiku 4.5 the cacheable prefix must reach
+  4096 tokens. Below that, `cache_control` is ignored silently: no error, just
+  full price on every message. Keeping the knowledge base above that line turned
+  the cache on and cut input cost by about 90%.
+- **Web search is off on the public demo, by measurement.** Netlify's free tier
+  caps a function at 10 seconds total, which streaming does not extend. Measured
+  2.4 to 3.5 seconds without search, 7.1 to 10.3 with it, so the tool is dropped
+  rather than left to fail at random.
+- **The model copies the punctuation it reads.** Telling it not to use em dashes
+  did nothing while the prompt itself contained fifteen of them. Removing them,
+  and giving examples instead of a prohibition, fixed it.
+- **Media never enters the database.** Only a placeholder does. Storing base64
+  would bloat the history and resend it on every turn.
+- **Unknown numbers cost nothing.** The allowlist is checked before any API call,
+  and attachments from unknown numbers are not even downloaded.
 
-**Vocali** — l'API di Claude non accetta audio, quindi la trascrizione la fa
-**Google Gemini** (`GEMINI_API_KEY` nel `.env`); il testo poi rientra nella
-pipeline normale e risponde Claude. Sulle bozze in arrivo su Telegram i vocali
-sono marcati 🎤 così sai che stai leggendo una trascrizione, che può sbagliare.
-Senza la chiave, i vocali ti arrivano come semplice notifica, come prima.
+## Running it
 
-Tutto il resto (video, sticker, documenti-file, contatti, posizioni) resta una
-notifica: rispondi a mano. I media dei numeri **non** in lista non vengono
-nemmeno scaricati.
+```bash
+npm install
+cp .env.example .env      # add ANTHROPIC_API_KEY
 
-> Nota: i vocali WhatsApp sono Opus in container Ogg. Di norma Gemini li accetta
-> così com'è; se li rifiuta, il bot li transcodifica con `ffmpeg` (se installato)
-> e riprova. Su un VPS: `sudo apt install ffmpeg`.
+npm run brain             # the brain alone, in a local REPL
+npm run demo              # the web demo on localhost:8888
+npm start                 # the full bot: WhatsApp + Telegram control
+npm test                  # 184 tests, offline, under a second
+```
 
-## Apprendimento (FAQ che cresce)
-Il bot impara dalle risposte che approvi, così la stessa domanda non la rispondi
-due volte:
-- **Da Telegram:** quando approvi/modifichi una bozza che era in escalation
-  (info zona o regola casa non ancora nota), la risposta finale viene salvata
-  in `knowledge/learned.json` e riusata in futuro.
-- **Dal telefono:** se rispondi a mano a un cliente, il bot lo nota e — se è una
-  risposta riutilizzabile — ti chiede su Telegram se salvarla (**Salva / No**).
-- **Scadenza:** le info sulla zona scadono dopo ~3 mesi (un ristorante può
-  chiudere): alla scadenza tornano in revisione invece di partire da sole.
+The tests never hit the network and never touch real files: the Anthropic and
+Gemini SDKs are mocked, and the JSON stores, the database and the house guide
+are redirected to a temporary directory.
 
-## Persistenza dati
-- **Conversazioni**: SQLite in `data/bot.db` (sopravvive ai riavvii). Una chat si
-  "azzera" dopo 6h di silenzio; si tengono gli ultimi 20 messaggi.
-- **FAQ imparate**: `knowledge/learned.json` · **Allowlist**: `allowlist.json` ·
-  **Sessione WhatsApp**: `auth_info/`.
-- Da salvare nei backup del server: `data/`, `auth_info/`, `knowledge/`,
-  `allowlist.json`, `.env`.
+## Documentation
 
-## Prossimi passi
-- [x] Ricerca web nativa per le domande sulla zona
-- [x] Canale Telegram per approvare/modificare le bozze
-- [x] Connessione WhatsApp (Baileys) + memoria conversazioni
-- [x] Apprendimento: salvataggio delle risposte approvate nelle FAQ
-- [x] Lettura delle foto (Claude) e trascrizione dei vocali (Gemini)
-- [x] Demo web pubblica con inbox host simulata — vedi [DEMO.md](DEMO.md)
-- [ ] Deploy su un VPS per tenerlo attivo 24/7 — vedi [DEPLOY.md](DEPLOY.md)
+| | |
+|---|---|
+| [DEMO.md](DEMO.md) | The web demo: architecture, latency budget, deploy |
+| [DEPLOY.md](DEPLOY.md) | Running the bot on a VPS as a systemd service |
+| [CLAUDE.md](CLAUDE.md) | Invariants and non-obvious details, for anyone changing the code |
+
+Code, comments and the two documents above are in Italian, like the house they
+describe. This README is in English because it is the front door.
+
+## Status
+
+Working on WhatsApp and Telegram, with photo understanding, voice-note
+transcription, learned FAQs that expire, and a public web demo. Next: a VPS
+deploy to keep it running 24/7.
+
+> Baileys is an unofficial WhatsApp library. The bot only replies to people who
+> write first, never sends cold messages, and ignores groups.
