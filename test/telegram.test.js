@@ -8,7 +8,8 @@ import { cartellaTemporanea } from './helpers.js';
 
 cartellaTemporanea('telegram'); // telegram.js importa allowlist.js: teniamola isolata
 
-const { updateAutorizzato, troncaPerTelegram } = await import('../src/telegram.js');
+const { updateAutorizzato, troncaPerTelegram, MappaConScadenza } =
+  await import('../src/telegram.js');
 
 const HOST = '12345678';
 const ESTRANEO = '99999999';
@@ -84,4 +85,68 @@ test('un messaggio troppo lungo viene troncato e segnalato', () => {
 
   assert.ok(troncato.length <= 4096, `lunghezza ${troncato.length}`);
   assert.ok(troncato.endsWith('… (troncato)'));
+});
+
+// --- Voci pendenti che scadono (MappaConScadenza) --------------------------
+//
+// Le bozze non approvate restavano in memoria finché il processo viveva: su un
+// VPS che gira per mesi è una perdita di memoria lenta. Un orologio finto
+// permette di verificare la scadenza senza aspettare 24 ore.
+
+const conOrologio = (opts = {}) => {
+  let adesso = 0;
+  const m = new MappaConScadenza({ ora: () => adesso, ...opts });
+  return { m, avanza: (ms) => { adesso += ms; } };
+};
+
+test('una voce si legge normalmente prima della scadenza', () => {
+  const { m, avanza } = conOrologio({ scadenzaMs: 1000 });
+  m.set('a', { bozza: 'ciao' });
+  avanza(999);
+  assert.deepEqual(m.get('a'), { bozza: 'ciao' });
+});
+
+test('dopo la scadenza la voce sparisce', () => {
+  const { m, avanza } = conOrologio({ scadenzaMs: 1000 });
+  m.set('a', { bozza: 'ciao' });
+  avanza(1001);
+  assert.equal(m.get('a'), undefined, 'l’host vedrà «non più disponibile», non un errore');
+  assert.equal(m.size, 0, 'e la voce non occupa più memoria');
+});
+
+test('un nuovo inserimento ripulisce le voci già scadute', () => {
+  const { m, avanza } = conOrologio({ scadenzaMs: 1000 });
+  m.set('vecchia', 1);
+  avanza(2000);
+  m.set('nuova', 2);
+  assert.equal(m.size, 1);
+  assert.equal(m.get('nuova'), 2);
+});
+
+test('oltre il tetto massimo escono per prime le voci più vecchie', () => {
+  const { m } = conOrologio({ scadenzaMs: 10_000, max: 3 });
+  for (const id of ['a', 'b', 'c', 'd']) m.set(id, id);
+  assert.equal(m.size, 3);
+  assert.equal(m.get('a'), undefined, 'la più vecchia è uscita');
+  assert.equal(m.get('d'), 'd');
+});
+
+test('onScadenza avvisa chi tiene un indice inverso', () => {
+  // pendingUnknown è indicizzato anche per JID: senza questa richiamata quel
+  // numero non verrebbe mai più segnalato all’host.
+  const scartati = [];
+  const { m, avanza } = conOrologio({ scadenzaMs: 1000 });
+  m.onScadenza = (id, valore) => scartati.push([id, valore.jid]);
+  m.set('x', { jid: '39333@s.whatsapp.net' });
+  avanza(1001);
+  m.get('x');
+  assert.deepEqual(scartati, [['x', '39333@s.whatsapp.net']]);
+});
+
+test('delete rimuove subito, senza aspettare la scadenza', () => {
+  const { m } = conOrologio({ scadenzaMs: 1000 });
+  m.set('a', 1);
+  m.delete('a');
+  assert.equal(m.get('a'), undefined);
+  assert.equal(m.size, 0);
 });

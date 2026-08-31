@@ -4,8 +4,8 @@ import { loadKnowledge } from './knowledge.js';
 
 const client = new Anthropic({ apiKey: config.anthropicApiKey });
 
-const SYSTEM_INSTRUCTIONS = `Sei l'assistente WhatsApp di una casa vacanze a Costa Rei (Sardegna).
-Rispondi ai clienti come se fossi **Alessio**, l'host: tono cordiale, caloroso e conciso, come un host italiano su WhatsApp. Niente formalismi eccessivi né risposte chilometriche.
+const SYSTEM_INSTRUCTIONS = `Sei **Alessio**, l'host che risponde su WhatsApp di una casa vacanze a Costa Rei (Sardegna) alle richieste dei clienti.
+Rispondi con: tono cordiale, caloroso e conciso, come un host italiano su WhatsApp. Niente formalismi eccessivi né risposte chilometriche. Non usare MAI il simbolo em dash. 
 
 REGOLE FONDAMENTALI:
 1. Rispondi SEMPRE nella stessa lingua del messaggio del cliente (italiano, inglese, spagnolo o qualsiasi altra).
@@ -38,10 +38,22 @@ Quando hai la risposta, concludi SEMPRE chiamando lo strumento submit_response c
 
 // Strumento di ricerca web nativo, con posizione impostata su Costa Rei per
 // avere risultati locali (farmacie, supermercati, ristoranti vicini...).
-const WEB_SEARCH_TOOL = {
+// NB: la versione del tool è legata al modello. `web_search_20250305` è la
+// variante corretta per Haiku 4.5; la più recente `web_search_20260209` (con
+// filtro dinamico) richiede Opus 4.6+ / Sonnet 4.6+. Se cambi MODEL, ricontrolla
+// anche questa riga.
+const MAX_RICERCHE_WEB = 3;
+
+// Tetto ai token della risposta. Conta soprattutto per la LATENZA: la
+// generazione è la parte lenta, e una risposta lunga il doppio impiega il
+// doppio. Un messaggio WhatsApp non ne ha comunque bisogno — il system prompt
+// chiede già risposte concise.
+const MAX_TOKEN_RISPOSTA = 1500;
+
+const webSearchTool = (maxUses = MAX_RICERCHE_WEB) => ({
   type: 'web_search_20250305',
   name: 'web_search',
-  max_uses: 3,
+  max_uses: maxUses,
   user_location: {
     type: 'approximate',
     city: 'Costa Rei',
@@ -49,7 +61,7 @@ const WEB_SEARCH_TOOL = {
     country: 'IT',
     timezone: 'Europe/Rome',
   },
-};
+});
 
 // Strumento con cui il modello consegna la sua decisione finale.
 const RESPONSE_TOOL = {
@@ -79,7 +91,12 @@ const RESPONSE_TOOL = {
       },
       reason: {
         type: 'string',
-        description: "Breve spiegazione in italiano per l'host del perché di questa decisione.",
+        // Segue la lingua del cliente, come "draft": la demo web mostra questo
+        // campo a chi scrive, e una spiegazione in una lingua che non legge non
+        // spiega niente. Per l'host cambia poco: il messaggio a cui si
+        // riferisce ce l'ha davanti nella stessa lingua.
+        description:
+          "Breve spiegazione per l'host del perché di questa decisione, scritta nella STESSA lingua del messaggio del cliente.",
       },
     },
     required: ['category', 'action', 'language', 'draft', 'reason'],
@@ -138,6 +155,29 @@ function buildUserContent(text, image) {
   ];
 }
 
+// Campi di `usage` che ha senso sommare fra un giro e l'altro del ciclo.
+const CAMPI_USAGE = [
+  'input_tokens',
+  'output_tokens',
+  'cache_creation_input_tokens',
+  'cache_read_input_tokens',
+];
+
+/**
+ * Somma l'uso di token di più risposte. Serve perché una ricerca web può far
+ * tornare `pause_turn` e quindi generare PIÙ chiamate all'API per un solo
+ * messaggio del cliente: prendere solo l'ultima risposta (com'era prima)
+ * sottostima il consumo reale, e quindi il costo.
+ */
+function sommaUsage(totale, usage) {
+  if (!usage) return totale;
+  for (const campo of CAMPI_USAGE) {
+    const v = usage[campo];
+    if (typeof v === 'number') totale[campo] = (totale[campo] ?? 0) + v;
+  }
+  return totale;
+}
+
 /**
  * Dato il messaggio di un cliente (ed eventuale storico), restituisce la
  * decisione del bot: categoria, action (invia/escala), bozza, motivo e le
@@ -147,25 +187,41 @@ function buildUserContent(text, image) {
  * modello guarda la foto insieme al testo. Le foto di documenti d'identità
  * vengono classificate "documento_identita" senza estrarne alcun dato.
  *
+ * `maxTokens` limita la lunghezza della risposta (default 1500). Abbassarlo
+ * riduce la latenza in modo diretto: è la generazione a dominare il tempo.
+ *
+ * `maxWebSearches` limita quante ricerche web il modello può fare in un turno
+ * (default 3). Con 0 lo strumento non viene proprio offerto al modello: serve
+ * alla demo web, dove la latenza ha un tetto rigido e la ricerca è la parte
+ * lenta (2-3s senza, 6-10s con).
+ *
  * Il modello può usare web_search (per le domande sulla zona) e poi conclude
  * chiamando submit_response. Il ciclo sotto gestisce i tool server-side e gli
  * eventuali "pause_turn".
  */
-export async function think(clientMessage, history = [], { image } = {}) {
+export async function think(
+  clientMessage,
+  history = [],
+  { image, maxWebSearches = MAX_RICERCHE_WEB, maxTokens = MAX_TOKEN_RISPOSTA } = {}
+) {
   const knowledge = loadKnowledge();
   const messages = normalizeMessages([
     ...history,
     { role: 'user', content: buildUserContent(clientMessage, image) },
   ]);
   const sourcesByUrl = new Map();
+  const usage = {};
   let finalResponse;
+  let steps = 0;
 
   for (let step = 0; step < 5; step++) {
     const response = await client.messages.create({
       model: config.model,
-      max_tokens: 1500,
+      max_tokens: maxTokens,
       system: systemBlocks(knowledge.text),
-      tools: [WEB_SEARCH_TOOL, RESPONSE_TOOL],
+      tools: maxWebSearches > 0
+        ? [webSearchTool(maxWebSearches), RESPONSE_TOOL]
+        : [RESPONSE_TOOL], // 0 = niente ricerca web (demo con latenza garantita)
       messages,
     });
 
@@ -181,6 +237,8 @@ export async function think(clientMessage, history = [], { image } = {}) {
     }
 
     finalResponse = response;
+    steps++;
+    sommaUsage(usage, response.usage);
 
     // Il server chiede di proseguire (ricerca web lunga): rimanda e continua.
     if (response.stop_reason === 'pause_turn') {
@@ -202,13 +260,14 @@ export async function think(clientMessage, history = [], { image } = {}) {
       action: 'escala',
       language: 'it',
       draft: '',
-      reason: 'Il modello non ha restituito una decisione strutturata: escalation per sicurezza.',
+      reason: 'The model returned no structured decision: escalating for safety.',
       sources,
-      usage: finalResponse.usage,
+      usage,
+      steps,
     };
   }
 
-  return { ...toolUse.input, sources, usage: finalResponse.usage };
+  return { ...toolUse.input, sources, usage, steps };
 }
 
 const LEARN_TOOL = {

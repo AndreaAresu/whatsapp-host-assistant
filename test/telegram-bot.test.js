@@ -206,6 +206,36 @@ test('«Invia» manda la bozza al cliente e chiude il messaggio', async () => {
   assert.ok(ctx.chiamate.some((c) => c.method === 'editMessageText' && /✅ Inviata a Marco/.test(c.payload.text)));
 });
 
+test('una bozza VUOTA non parte: il modello a volte escala senza proporla', async () => {
+  // Succede davvero, sui temi sensibili. Senza questa guardia al cliente
+  // arriverebbe un messaggio vuoto (o l'invio fallirebbe con un errore oscuro).
+  await ctx.requestApproval({
+    ...BOZZA,
+    decision: { ...BOZZA.decision, draft: '   ' },
+  });
+
+  await ctx.bot.handleUpdate(pulsante('send:draft-1'));
+
+  assert.deepEqual(ctx.spie.approvate, [], 'niente deve arrivare al cliente');
+  assert.ok(
+    testiInviati(ctx.chiamate).some((t) => /Modifica/.test(t)),
+    'l’host va indirizzato sul pulsante Modifica'
+  );
+});
+
+test('una bozza vuota è segnalata già nel messaggio di approvazione', async () => {
+  await ctx.requestApproval({
+    ...BOZZA,
+    decision: { ...BOZZA.decision, draft: '' },
+  });
+
+  const testo = testiInviati(ctx.chiamate).at(-1);
+  assert.ok(
+    /non ne ha proposta una/.test(testo),
+    'meglio dirlo che mostrare "Bozza:" seguito dal nulla'
+  );
+});
+
 test('«Ignora» non manda niente al cliente', async () => {
   await ctx.requestApproval(BOZZA);
 

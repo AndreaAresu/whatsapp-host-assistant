@@ -10,7 +10,14 @@ cartellaTemporanea('whatsapp'); // whatsapp.js importa allowlist.js: teniamola i
 
 const {
   extractText, describeMedia, unwrapMessage, declaredFileLength, resolvePhoneNumber,
+  classificaMessaggio,
 } = await import('../src/whatsapp.js');
+
+// Costruisce un messaggio Baileys minimo attorno a un contenuto.
+const messaggio = (message, { jid = '39333111@s.whatsapp.net', fromMe = false } = {}) => ({
+  key: { remoteJid: jid, fromMe, id: 'ABC' },
+  message,
+});
 
 // --- Testo ---
 
@@ -168,4 +175,89 @@ test('se la mappatura non esiste proprio non si esplode', async () => {
     await resolvePhoneNumber(sockSenzaMapping, { remoteJid: '123456789012345@lid' }),
     '123456789012345'
   );
+});
+
+// --- Instradamento (classificaMessaggio) ---
+//
+// REGRESSIONE: prima l'instradamento partiva da extractText(), che per una foto
+// restituisce la DIDASCALIA. Una foto con didascalia finiva così sul ramo testo:
+// l'immagine non veniva mai scaricata né mostrata a Claude. Questi test coprono
+// la decisione che allora non era raggiungibile perché chiusa nella closure di
+// startWhatsApp().
+
+test('un messaggio di solo testo va sul ramo testo', () => {
+  const r = classificaMessaggio(messaggio({ conversation: 'A che ora è il check-in?' }));
+  assert.equal(r.rotta, 'testo');
+  assert.equal(r.testo, 'A che ora è il check-in?');
+});
+
+test('REGRESSIONE: una foto CON didascalia va sul ramo media, non su quello testo', () => {
+  const r = classificaMessaggio(
+    messaggio({ imageMessage: { caption: 'Si è rotto questo', mimetype: 'image/jpeg' } })
+  );
+  assert.equal(r.rotta, 'media', 'la foto deve arrivare a Claude, non solo la didascalia');
+  assert.equal(r.media.kind, 'foto');
+  assert.equal(r.testo, 'Si è rotto questo', 'la didascalia va conservata, non buttata');
+});
+
+test('una foto SENZA didascalia va sul ramo media con testo vuoto', () => {
+  const r = classificaMessaggio(messaggio({ imageMessage: { mimetype: 'image/jpeg' } }));
+  assert.equal(r.rotta, 'media');
+  assert.equal(r.testo, '');
+});
+
+test('un documento con didascalia resta un media e non perde la didascalia', () => {
+  const r = classificaMessaggio(
+    messaggio({ documentMessage: { caption: 'Ecco il documento', mimetype: 'application/pdf' } })
+  );
+  assert.equal(r.rotta, 'media');
+  assert.equal(r.media.kind, 'documento');
+  assert.equal(r.testo, 'Ecco il documento');
+});
+
+test('una nota vocale va sul ramo media', () => {
+  const r = classificaMessaggio(
+    messaggio({ audioMessage: { ptt: true, mimetype: 'audio/ogg; codecs=opus' } })
+  );
+  assert.equal(r.rotta, 'media');
+  assert.equal(r.media.kind, 'nota vocale');
+});
+
+test('anche una foto dentro un view-once va sul ramo media', () => {
+  const r = classificaMessaggio(
+    messaggio({ viewOnceMessage: { message: { imageMessage: { mimetype: 'image/jpeg' } } } })
+  );
+  assert.equal(r.rotta, 'media');
+});
+
+test('SICUREZZA: i gruppi vengono ignorati', () => {
+  const r = classificaMessaggio(messaggio({ conversation: 'ciao' }, { jid: '123@g.us' }));
+  assert.equal(r.rotta, 'ignora');
+});
+
+test('SICUREZZA: gli status vengono ignorati', () => {
+  const r = classificaMessaggio(messaggio({ conversation: 'ciao' }, { jid: 'status@broadcast' }));
+  assert.equal(r.rotta, 'ignora');
+});
+
+test('un media inviato da noi viene ignorato, non ri-processato', () => {
+  const r = classificaMessaggio(
+    messaggio({ imageMessage: { mimetype: 'image/jpeg' } }, { fromMe: true })
+  );
+  assert.equal(r.rotta, 'ignora');
+});
+
+test('il testo inviato da noi resta sul ramo testo (è la risposta manuale dell’host)', () => {
+  const r = classificaMessaggio(messaggio({ conversation: 'Ti apro io' }, { fromMe: true }));
+  assert.equal(r.rotta, 'testo', 'serve a onHostReply per l’apprendimento');
+});
+
+test('un messaggio senza contenuto o senza jid viene ignorato', () => {
+  assert.equal(classificaMessaggio({ key: { remoteJid: 'x@s.whatsapp.net' } }).rotta, 'ignora');
+  assert.equal(classificaMessaggio(undefined).rotta, 'ignora');
+  assert.equal(classificaMessaggio(messaggio({ conversation: 'ciao' }, { jid: null })).rotta, 'ignora');
+});
+
+test('un messaggio senza testo e senza media viene ignorato', () => {
+  assert.equal(classificaMessaggio(messaggio({ protocolMessage: {} })).rotta, 'ignora');
 });

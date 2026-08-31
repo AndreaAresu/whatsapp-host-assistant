@@ -25,7 +25,19 @@ const LEARNABLE = new Set(['info_zona', 'regole_casa']);
 let wa; // assegnato dopo l'avvio di WhatsApp
 
 // Invia al cliente (via WhatsApp) e registra la risposta nella memoria.
+//
+// La guardia su `wa` non è teorica: il bot Telegram viene avviato PRIMA della
+// connessione a WhatsApp (così è pronto a ricevere bozze), quindi nei primi
+// secondi dopo un riavvio l'host può premere «Invia» su una bozza vecchia
+// mentre `wa` è ancora undefined. Senza la guardia sarebbe un
+// "Cannot read properties of undefined", cioè un messaggio incomprensibile;
+// così l'host legge cosa è successo e il pulsante resta riprovabile.
 async function sendToClient(jid, text) {
+  if (!wa) {
+    throw new Error(
+      'WhatsApp non è ancora connesso (il bot è appena stato avviato). Riprova fra qualche secondo.'
+    );
+  }
   await wa.sendToClient(jid, text);
   memory.appendAssistant(jid, text);
 }
@@ -120,7 +132,7 @@ async function processClientMessage({ jid, number, name, text, image, memoryText
  * classifica "documento_identita" senza estrarne alcun dato, e qui ci
  * limitiamo a ricordare all'host la registrazione su alloggiatiweb.
  */
-async function handlePhoto({ jid, number, name, mimetype, download }) {
+async function handlePhoto({ jid, number, name, mimetype, text, download }) {
   let buffer;
   try {
     buffer = await download();
@@ -133,13 +145,21 @@ async function handlePhoto({ jid, number, name, mimetype, download }) {
     return;
   }
 
+  // La didascalia, se c'è, È il messaggio del cliente ("si è rotto questo"):
+  // vale più della frase generica di prima.
+  const didascalia = String(text || '').trim();
+
   const result = await processClientMessage({
     jid,
     number,
     name,
-    text: 'Il cliente ha inviato questa foto.',
+    text: didascalia || 'Il cliente ha inviato questa foto.',
     image: { data: buffer.toString('base64'), mediaType: mimetype.split(';')[0].trim() },
-    memoryText: '[il cliente ha inviato una foto]',
+    // Nello storico va il segnaposto, mai i byte dell'immagine. La didascalia
+    // invece è testo e va conservata: è contesto per i turni successivi.
+    memoryText: didascalia
+      ? `[il cliente ha inviato una foto] ${didascalia}`
+      : '[il cliente ha inviato una foto]',
   });
 
   if (result?.decision?.category === 'documento_identita') {
@@ -240,7 +260,7 @@ wa = await startWhatsApp({
   // Media in arrivo. Il bot gestisce da solo due casi — le foto (le guarda
   // con Claude) e i vocali (li fa trascrivere e li tratta come testo) — e per
   // tutto il resto si limita ad avvisare l'host, come prima.
-  onMedia: async ({ jid, number, name, kind, mimetype, download }) => {
+  onMedia: async ({ jid, number, name, kind, mimetype, text, download }) => {
     if (!isAllowedNumber(number)) {
       // Numero NON in lista: avviso e basta. Il media non viene nemmeno
       // scaricato (download() non viene invocato): niente banda, nessun dato
@@ -253,7 +273,7 @@ wa = await startWhatsApp({
     }
 
     if (kind === 'foto' && isSupportedImageType(mimetype)) {
-      await handlePhoto({ jid, number, name, mimetype, download });
+      await handlePhoto({ jid, number, name, mimetype, text, download });
       return;
     }
     if (kind === 'nota vocale' || kind === 'audio') {
@@ -262,13 +282,17 @@ wa = await startWhatsApp({
     }
 
     // Video, sticker, documenti-file, contatti, posizioni: fuori portata.
-    let text =
+    let avviso =
       `📎 ${name} (${number}) ti ha mandato un media che il bot non gestisce: ${kind}. ` +
       'Rispondi a mano su WhatsApp.';
+    // Se il cliente ha scritto una didascalia, all'host serve leggerla: è
+    // l'unica parte del messaggio che il bot può riferire.
+    const didascalia = String(text || '').trim();
+    if (didascalia) avviso += `\n\nDidascalia: "${didascalia}"`;
     if (kind === 'documento') {
-      text += '\nSe è un documento d\'identità, ricordati della registrazione su alloggiatiweb.';
+      avviso += '\nSe è un documento d\'identità, ricordati della registrazione su alloggiatiweb.';
     }
-    await notifyHost(text);
+    await notifyHost(avviso);
   },
 
   // Alert di sistema (logout/disconnessione WhatsApp): li inoltriamo all'host.

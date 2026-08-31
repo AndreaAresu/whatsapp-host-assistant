@@ -87,7 +87,7 @@ test('SICUREZZA: senza decisione strutturata si escala, non si inventa', async (
   assert.equal(d.action, 'escala');
   assert.equal(d.category, 'sensibile');
   assert.equal(d.draft, '', 'niente bozza inventata dal testo libero');
-  assert.match(d.reason, /escalation per sicurezza/);
+  assert.match(d.reason, /escalating for safety/);
 });
 
 test('SICUREZZA: un tool diverso da submit_response non vale come decisione', async () => {
@@ -247,6 +247,52 @@ test('con pause_turn la conversazione riprende da dove era rimasta', async () =>
   assert.deepEqual(ultimo.content, contenutoPausa, 'il turno interrotto va rimandato indietro');
   assert.equal(d.action, 'escala');
   assert.deepEqual(d.sources, [{ title: 'A', url: 'https://a.it' }], 'le fonti dei passi precedenti non si perdono');
+});
+
+test('REGRESSIONE: con pause_turn i token di TUTTE le chiamate vengono sommati', async () => {
+  // Prima si restituiva solo `usage` dell'ultima risposta: una ricerca web che
+  // richiede due chiamate risultava costare quanto una sola.
+  risposte = [
+    {
+      stop_reason: 'pause_turn',
+      usage: { input_tokens: 500, output_tokens: 30, cache_read_input_tokens: 2000 },
+      content: [{ type: 'text', text: 'sto cercando' }],
+    },
+    conDecisione({ ...DECISIONE, category: 'info_zona', action: 'escala' }),
+  ];
+
+  const d = await think('Dov’è la farmacia più vicina?');
+
+  assert.equal(d.usage.input_tokens, 600, '500 del primo passo + 100 del secondo');
+  assert.equal(d.usage.output_tokens, 50, '30 + 20');
+  assert.equal(d.usage.cache_read_input_tokens, 2000, 'i campi presenti in un solo passo restano');
+  assert.equal(d.steps, 2, 'due chiamate all’API per un solo messaggio del cliente');
+});
+
+test('con una sola chiamata usage e steps restano quelli della risposta', async () => {
+  risposte = [conDecisione()];
+  const d = await think('A che ora è il check-out?');
+  assert.deepEqual(d.usage, { input_tokens: 100, output_tokens: 20 });
+  assert.equal(d.steps, 1);
+});
+
+test('con maxWebSearches a 0 lo strumento di ricerca non viene nemmeno offerto', async () => {
+  // Serve alla demo web: senza ricerca la risposta sta sotto i 3s, con la
+  // ricerca arriva a 10s e sfonda il timeout delle funzioni Netlify.
+  risposte = [conDecisione()];
+  await think('A che ora è il check-out?', [], { maxWebSearches: 0 });
+
+  const nomi = chiamate.at(-1).tools.map((t) => t.name);
+  assert.deepEqual(nomi, ['submit_response'], 'niente web_search fra gli strumenti');
+});
+
+test('per default la ricerca web resta disponibile', async () => {
+  risposte = [conDecisione()];
+  await think('A che ora è il check-out?');
+
+  const nomi = chiamate.at(-1).tools.map((t) => t.name);
+  assert.ok(nomi.includes('web_search'), 'il bot vero non deve cambiare comportamento');
+  assert.equal(chiamate.at(-1).tools.find((t) => t.name === 'web_search').max_uses, 3);
 });
 
 test('il ciclo non gira all’infinito: dopo 5 passi si escala', async () => {

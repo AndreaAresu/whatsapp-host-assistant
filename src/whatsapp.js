@@ -22,8 +22,10 @@ const MAX_MEDIA_BYTES = 20 * 1024 * 1024; // 20 MB
  *   telefono (serve per imparare). Esclude gli invii fatti dal bot stesso.
  * - onAlert(text): notifica di sistema per l'host (logout/disconnessione/ritorno
  *   online). Opzionale e disaccoppiato: qui non sappiamo nulla di Telegram.
- * - onMedia({ jid, number, name, kind, mimetype, download }): media in arrivo da
- *   un cliente (foto, vocale, ecc.) senza testo utile. `download()` è una
+ * - onMedia({ jid, number, name, kind, mimetype, text, download }): media in
+ *   arrivo da un cliente (foto, vocale, ecc.). `text` è la DIDASCALIA del media
+ *   ('' se assente): una foto con didascalia arriva qui, non su onMessage.
+ *   `download()` è una
  *   funzione PIGRA che restituisce una Promise<Buffer> col contenuto decifrato:
  *   va invocata solo se il media serve davvero, così i media dei numeri non in
  *   lista non vengono mai scaricati. Opzionale.
@@ -106,41 +108,44 @@ export async function startWhatsApp({ onMessage, onHostReply, onAlert, onMedia }
     sock.ev.on('messages.upsert', async ({ messages, type }) => {
       if (type !== 'notify') return;
       for (const msg of messages) {
-        if (!msg.message) continue;
-        const jid = msg.key.remoteJid; // JID della chat (per rispondere); può essere un @lid
-        // ignora status e gruppi
-        if (!jid || jid === 'status@broadcast' || jid.endsWith('@g.us')) continue;
+        const jid = msg.key?.remoteJid; // JID della chat (per rispondere); può essere un @lid
 
-        const text = extractText(msg.message);
-        if (!text) {
-          // Nessun testo utile: è un media. Lo segnaliamo a chi ci usa, che
-          // decide se scaricarlo (foto e vocali) o limitarsi ad avvisare l'host.
-          const media = describeMedia(msg.message);
-          if (media && !msg.key.fromMe) {
-            const number = await resolvePhoneNumber(sock, msg.key);
-            const name = msg.pushName || number || jid.split('@')[0];
-            try {
-              await onMedia?.({
-                jid,
-                number,
-                name,
-                kind: media.kind,
-                mimetype: media.mimetype,
-                // Scaricamento PIGRO: chi chiama lo invoca solo se serve
-                // davvero. Così un media da un numero non in lista non viene
-                // mai scaricato (niente banda né dati non richiesti).
-                download: () => downloadMedia(msg),
-              });
-            } catch (err) {
-              console.error('Errore nella gestione del media:', err);
-            }
-          }
-          // I media inviati da noi (fromMe) restano ignorati come prima.
-          continue;
-        }
+        // Tutta la decisione su cosa fare del messaggio sta in
+        // classificaMessaggio(): è pura, quindi verificabile dai test senza
+        // una connessione a WhatsApp (prima questa logica viveva qui dentro e
+        // non era raggiungibile).
+        const rotta = classificaMessaggio(msg);
+        if (rotta.rotta === 'ignora') continue;
 
         // Numero di telefono vero (in Baileys 7 il remoteJid può essere un LID).
         const number = await resolvePhoneNumber(sock, msg.key);
+
+        if (rotta.rotta === 'media') {
+          const name = msg.pushName || number || jid.split('@')[0];
+          try {
+            await onMedia?.({
+              jid,
+              number,
+              name,
+              kind: rotta.media.kind,
+              mimetype: rotta.media.mimetype,
+              // La didascalia del media (stringa vuota se non c'è). Va passata
+              // avanti: è il messaggio che il cliente ha scritto insieme alla
+              // foto ("si è rotto questo") e senza di essa la richiesta perde
+              // il suo unico contesto testuale.
+              text: rotta.testo,
+              // Scaricamento PIGRO: chi chiama lo invoca solo se serve
+              // davvero. Così un media da un numero non in lista non viene
+              // mai scaricato (niente banda né dati non richiesti).
+              download: () => downloadMedia(msg),
+            });
+          } catch (err) {
+            console.error('Errore nella gestione del media:', err);
+          }
+          continue;
+        }
+
+        const text = rotta.testo;
 
         if (msg.key.fromMe) {
           // Messaggio inviato dal nostro account: o è il bot, o è l'host a mano.
@@ -200,6 +205,48 @@ export async function startWhatsApp({ onMessage, onHostReply, onAlert, onMedia }
 // Le funzioni qui sotto sono pure (nessuna connessione, nessuno stato) ed è per
 // questo che sono esportate: servono ai test in test/whatsapp.test.js. Fuori di
 // lì usa startWhatsApp.
+
+/**
+ * Decide che fare di un messaggio in arrivo. È la funzione di instradamento del
+ * bot, tenuta pura (nessuna connessione, nessuno stato) proprio per poterla
+ * verificare dai test.
+ *
+ * Restituisce:
+ *  - { rotta: 'ignora', motivo }        → non ci riguarda
+ *  - { rotta: 'testo', testo }          → messaggio di solo testo
+ *  - { rotta: 'media', media, testo }   → foto/vocale/altro; `testo` è la didascalia ('' se assente)
+ *
+ * ⚠️ IL MEDIA HA LA PRECEDENZA SUL TESTO, e non è un dettaglio: extractText()
+ * restituisce anche la DIDASCALIA di una foto. Instradando prima sul testo (com'era
+ * prima), una foto con didascalia finiva sul ramo testo: download() non veniva mai
+ * invocato e l'immagine non arrivava mai a Claude, che rispondeva alla sola frase.
+ * È il caso più comune, non un caso limite — il cliente fotografa il guasto e
+ * scrive "si è rotto questo" — e faceva anche saltare la classificazione
+ * `documento_identita` per i documenti inviati con didascalia.
+ */
+export function classificaMessaggio(msg) {
+  const message = msg?.message;
+  if (!message) return { rotta: 'ignora', motivo: 'nessun contenuto' };
+
+  const jid = msg.key?.remoteJid;
+  // Il bot ignora status e gruppi: risponde solo alle chat 1:1.
+  if (!jid || jid === 'status@broadcast' || jid.endsWith('@g.us')) {
+    return { rotta: 'ignora', motivo: 'status o gruppo' };
+  }
+
+  const media = describeMedia(message);
+  const testo = extractText(message);
+
+  if (media) {
+    // I media inviati dal nostro account restano ignorati: non sono richieste
+    // di un cliente e non alimentano l'apprendimento.
+    if (msg.key?.fromMe) return { rotta: 'ignora', motivo: 'media inviato da noi' };
+    return { rotta: 'media', media, testo };
+  }
+
+  if (testo) return { rotta: 'testo', testo };
+  return { rotta: 'ignora', motivo: 'nessun testo utile' };
+}
 
 // In Baileys 7 una chat 1:1 può avere remoteJid = LID (@lid) e remoteJidAlt =
 // numero (@s.whatsapp.net). Qui ricaviamo il numero di telefono vero.

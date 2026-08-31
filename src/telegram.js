@@ -19,6 +19,77 @@ export const troncaPerTelegram = (text) =>
     ? text
     : text.slice(0, TELEGRAM_MAX_CHARS - 20) + '\n… (troncato)';
 
+// Le voci pendenti (bozze, FAQ da confermare, numeri sconosciuti) vivono in
+// memoria: un riavvio le perde comunque. Senza una scadenza però si accumulano
+// finché il processo vive — e su un bot che gira per mesi su un VPS è una
+// perdita di memoria lenta, fatta di bozze che l'host non toccherà mai più.
+export const SCADENZA_PENDENTI_MS = 24 * 60 * 60 * 1000; // 24h
+const MAX_PENDENTI = 500;
+
+/**
+ * Una Map che dimentica: le voci scadono dopo `scadenzaMs` e comunque non
+ * superano `max` (le più vecchie escono per prime).
+ *
+ * `onScadenza` serve a chi tiene un indice inverso — pendingUnknown è indicizzato
+ * anche per JID — che altrimenti resterebbe pieno di riferimenti a voci sparite,
+ * impedendo per sempre di rinotificare quel numero.
+ *
+ * Esportata perché è pura e quindi verificabile senza una connessione a Telegram.
+ */
+export class MappaConScadenza {
+  constructor({ scadenzaMs = SCADENZA_PENDENTI_MS, max = MAX_PENDENTI, ora = Date.now } = {}) {
+    this.scadenzaMs = scadenzaMs;
+    this.max = max;
+    this.ora = ora;
+    this.onScadenza = null;
+    this.voci = new Map(); // id -> { valore, ts }
+  }
+
+  set(id, valore) {
+    this.pulisci();
+    this.voci.set(id, { valore, ts: this.ora() });
+    // Tetto di sicurezza: Map conserva l'ordine di inserimento, quindi la prima
+    // chiave è la più vecchia.
+    while (this.voci.size > this.max) {
+      const piuVecchia = this.voci.keys().next().value;
+      this.scarta(piuVecchia);
+    }
+    return this;
+  }
+
+  get(id) {
+    const voce = this.voci.get(id);
+    if (!voce) return undefined;
+    if (this.ora() - voce.ts > this.scadenzaMs) {
+      this.scarta(id);
+      return undefined;
+    }
+    return voce.valore;
+  }
+
+  delete(id) {
+    return this.voci.delete(id);
+  }
+
+  get size() {
+    return this.voci.size;
+  }
+
+  /** Rimuove le voci scadute. Chiamata a ogni inserimento. */
+  pulisci() {
+    const adesso = this.ora();
+    for (const [id, voce] of this.voci) {
+      if (adesso - voce.ts > this.scadenzaMs) this.scarta(id);
+    }
+  }
+
+  scarta(id) {
+    const voce = this.voci.get(id);
+    this.voci.delete(id);
+    if (voce && this.onScadenza) this.onScadenza(id, voce.valore);
+  }
+}
+
 /**
  * Decide se un update Telegram può passare al resto del bot. È la guardia di
  * privacy: il bot è privato e i comandi (/lista) esporrebbero i numeri dei
@@ -114,11 +185,15 @@ export function createControlBot({ onApprove, onSaveConfirmed, onAddAndReply }) 
     }
   }
 
-  const pending = new Map(); // bozze: draftId -> item
-  const pendingSaves = new Map(); // FAQ da confermare: saveId -> item
-  const awaitingEdit = new Map(); // host in modifica: chatId -> draftId
-  const pendingUnknown = new Map(); // numeri sconosciuti: id -> { jid, name, text }
+  const pending = new MappaConScadenza(); // bozze: draftId -> item
+  const pendingSaves = new MappaConScadenza(); // FAQ da confermare: saveId -> item
+  const awaitingEdit = new Map(); // host in modifica: chatId -> draftId (vita brevissima)
+  const pendingUnknown = new MappaConScadenza(); // numeri sconosciuti: id -> { jid, name, text }
   const unknownByJid = new Map(); // jid -> id (per non notificare due volte lo stesso)
+
+  // Quando un numero sconosciuto scade, va liberato anche l'indice per JID:
+  // altrimenti quel numero non verrebbe mai più segnalato all'host.
+  pendingUnknown.onScadenza = (_id, item) => unknownByJid.delete(item.jid);
 
   bot.command('start', (ctx) =>
     ctx.reply(
@@ -228,6 +303,16 @@ export function createControlBot({ onApprove, onSaveConfirmed, onAddAndReply }) 
     }
 
     if (action === 'send') {
+      // Non mandare mai un messaggio vuoto al cliente: la bozza resta pendente
+      // e l'host può scriverla con «Modifica».
+      if (!String(item.decision.draft ?? '').trim()) {
+        await ctx.answerCallbackQuery('Bozza vuota');
+        await ctx.reply(
+          '⚠️ Non c’è nessuna bozza da inviare: il modello non l’ha proposta.\n' +
+            'Usa «✏️ Modifica» per scrivere tu la risposta.'
+        );
+        return;
+      }
       await ctx.answerCallbackQuery('Invio...');
       const inviata = await provaConFeedback(
         ctx,
@@ -292,11 +377,20 @@ export function createControlBot({ onApprove, onSaveConfirmed, onAddAndReply }) 
       ? `\n\nFonti:\n${decision.sources.map((s) => `• ${s.url}`).join('\n')}`
       : '';
 
+    // Il modello a volte escala SENZA proporre una bozza (succede sui temi
+    // sensibili). Senza questo, l'host leggerebbe "Bozza:" seguito dal nulla e
+    // non capirebbe se è un guasto del bot: meglio dirglielo e indirizzarlo
+    // subito sul pulsante giusto.
+    const bozza = String(decision.draft ?? '').trim();
+    const corpoBozza = bozza
+      ? `Bozza:\n${bozza}`
+      : 'Bozza: ⚠️ il modello non ne ha proposta una. Usa «✏️ Modifica» per scriverla tu.';
+
     const text =
       `💬 Nuovo messaggio da ${clientName}\n` +
       `"${question}"\n\n` +
       `Categoria: ${decision.category} · ${decision.reason}\n\n` +
-      `Bozza:\n${decision.draft}${sourcesText}`;
+      `${corpoBozza}${sourcesText}`;
 
     await bot.api.sendMessage(config.telegramChatId, troncaPerTelegram(text), { reply_markup: keyboard });
   }
