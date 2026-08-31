@@ -146,6 +146,11 @@ significherebbe duplicare le regole di casa su due provider.
   c'è solo `casa.demo.md`. Le voci «DA COMPLETARE» sono intenzionali: il prompt
   le tratta come "non lo so". Per lo stesso motivo **nessun test lo legge**:
   `cartellaTemporanea()` scrive una guida finta e ci punta `CASA_PATH`.
+- **Nessun modulo di `src/` dichiara `__dirname`**: la costante si chiama `QUI`.
+  Il bundler ESM di Netlify ne inietta uno suo *dopo* il bundling, quindi
+  esbuild non rinomina le omonime e il modulo finale non compila — la funzione
+  della demo dà 502 a ogni richiesta senza arrivare all'handler. Vale per
+  qualunque modulo che possa finire nel bundle della demo. Vedi `DEMO.md`.
 - **La versione del tool `web_search` è legata al modello.** `web_search_20250305`
   è la variante giusta per Haiku 4.5; `web_search_20260209` (filtro dinamico)
   richiede Opus 4.6+ / Sonnet 4.6+. Se cambi `MODEL`, ricontrolla `brain.js`.

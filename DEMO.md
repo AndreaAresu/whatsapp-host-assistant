@@ -204,6 +204,35 @@ qui si è creato un repo NUOVO invece di ripulire quello esistente.
 
 4. Deploy. La demo risponde su `https://<nome-sito>.netlify.app`.
 
+### 1-bis. Due trappole del bundler, entrambe già in trappola una volta
+
+Si manifestano **solo in produzione**: la pagina statica continua a funzionare
+e la funzione risponde **502 a ogni richiesta**, perché il modulo non compila e
+non si arriva nemmeno all'handler. Il log della funzione (*Site → Logs →
+Functions*) è l'unico posto dove si legge la causa vera.
+
+**1. Non dichiarare `__dirname`.** Il bundler ESM di Netlify aggiunge in cima al
+bundle un proprio shim `__dirname`/`__filename`/`require` per l'interop CJS, e
+lo fa *dopo* il bundling: esbuild non lo vede e non rinomina le omonime. Due
+`const` con lo stesso nome nello stesso modulo finale sono un `SyntaxError`.
+Nei moduli di `src/` la costante si chiama `QUI`, non `__dirname`.
+
+**2. Dipendenze CJS che tirano ESM.** `@anthropic-ai/sdk` dipende da
+`standardwebhooks`, che nella 1.1.0 è rimasto CommonJS ma ha alzato
+`@stablelib/base64` a `^2`, diventata solo-ESM: `require()` di un ESM non è
+supportato. In locale non si vede, perché quel ramo del grafo non viene mai
+percorso; Lambda invece lo risolve tutto. Bloccato con un `overrides` in
+`package.json` alla 1.0.0, che chiede `@stablelib/base64@^1` (CommonJS).
+
+Come riprodurle **senza deployare**, in pochi secondi:
+
+```bash
+npx esbuild netlify/functions/chat.mjs --bundle --format=esm --platform=node \
+    --outfile=/tmp/bundle.mjs
+# premetti il banner di Netlify (const __dirname/__filename/require) e poi:
+node --check /tmp/bundle.mjs
+```
+
 ### 2. Collegarla a `estaated.it/assistant`
 
 Il sito della casa (`AndreaAresu/costa-rei-site`) è un'app **React + Vite su un
